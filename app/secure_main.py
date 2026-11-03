@@ -74,3 +74,37 @@ def homepage(request: Request):
     except HTTPException:
         return RedirectResponse("/login", status_code=303)
     return RedirectResponse("/flows", status_code=303)
+
+@app.on_event("startup")
+async def begin_due_workflow_worker():
+    if os.getenv("KAKI_ENABLE_DUE_WORKER","false").lower()!="true":
+        return
+    import asyncio
+    import logging
+    from .db import Session
+    from .workflow_core import run_due
+    async def tick():
+        while True:
+            await asyncio.sleep(30)
+            try:
+                def process():
+                    with Session() as db:
+                        count=run_due(db,limit=20)
+                        db.commit()
+                        return count
+                await asyncio.to_thread(process)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.getLogger(__name__).exception("Kaki scheduled workflow check failed")
+    app.state.due_worker=asyncio.create_task(tick())
+
+@app.on_event("shutdown")
+async def stop_due_workflow_worker():
+    task=getattr(app.state,"due_worker",None)
+    if task:
+        task.cancel()
+        try:
+            await task
+        except __import__("asyncio").CancelledError:
+            pass

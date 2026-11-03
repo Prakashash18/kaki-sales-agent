@@ -3,7 +3,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 from app.db import Base
 # Import every model so metadata includes the entire Kaki schema.
-from app import operations, company_settings, workflow_core, email_connectors, identity, secure_email_api  # noqa: F401
+from app import operations, company_settings, workflow_core, email_connectors, identity, secure_email_api, data_hub  # noqa: F401
 
 config=context.config
 if config.config_file_name is not None:

@@ -20,7 +20,7 @@ from .agent import classify
 
 router=APIRouter(prefix="/integrations")
 SCOPES={
-  "microsoft":"offline_access User.Read Mail.Read",
+  "microsoft":"offline_access User.Read Mail.Read Sites.Read.All",
   "google":"openid email https://www.googleapis.com/auth/gmail.readonly"
 }
 from .email_connectors import MailConnection
