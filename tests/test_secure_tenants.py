@@ -89,11 +89,10 @@ def test_staff_cannot_publish_or_invite_and_revocation_applies_immediately():
         record.active=False;db.commit()
     assert subordinate.get("/flows").status_code==403
 
-def test_microsoft_single_tenant_authority(monkeypatch):
-    monkeypatch.setenv("MICROSOFT_TENANT_ID","12345678-1234-1234-1234-123456789abc")
-    assert oauth_base("microsoft")=="https://login.microsoftonline.com/12345678-1234-1234-1234-123456789abc/oauth2/v2.0"
-    monkeypatch.setenv("MICROSOFT_TENANT_ID","../../bad")
-    with pytest.raises(Exception):oauth_base("microsoft")
+def test_microsoft_multitenant_authority(monkeypatch):
+    # A tenant's ID is NOT a Kaki environment variable.
+    monkeypatch.setenv("MICROSOFT_TENANT_ID","../../malicious-value")
+    assert oauth_base("microsoft")=="https://login.microsoftonline.com/organizations/oauth2/v2.0"
 
 def test_microsoft_connect_returns_expected_redirect(monkeypatch):
     email,cid=create_user()
@@ -110,11 +109,13 @@ def test_microsoft_connect_returns_expected_redirect(monkeypatch):
     assert response.status_code==303,response.text
     url=urlsplit(response.headers["location"])
     assert url.netloc=="login.microsoftonline.com"
-    assert "/12345678-1234-1234-1234-123456789abc/" in url.path
+    assert "/organizations/" in url.path
     query=parse_qs(url.query)
     assert query["redirect_uri"]==["https://kaki-staging.example/integrations/callback/microsoft"]
     assert "Mail.Read" in query["scope"][0]
     assert "offline_access" in query["scope"][0]
+    assert "openid" in query["scope"][0]
+    assert len(query["nonce"][0])>15
     assert query["response_type"]==["code"]
     assert query["state"][0]
 
@@ -165,14 +166,37 @@ def test_microsoft_oauth_callback_and_graph_diagnostic_mocked(monkeypatch):
     monkeypatch.setenv("KAKI_PUBLIC_URL","https://kaki-secure-staging.example")
     monkeypatch.setenv("KAKI_TOKEN_ENCRYPTION_KEY",Fernet.generate_key().decode())
     monkeypatch.setenv("DATABASE_URL","postgresql+psycopg://fake:fake@localhost/example")
+    from app.microsoft_multitenant import MicrosoftTenantBinding
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import jwt
+    from datetime import datetime,timezone,timedelta
+    tenant_id="12345678-1234-1234-1234-123456789abc"
+    object_id="22345678-1234-1234-1234-123456789abc"
+    key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+    class FakeJWKClient:
+        def __init__(self,*args,**kwargs): pass
+        def get_signing_key_from_jwt(self,token):
+            from types import SimpleNamespace
+            return SimpleNamespace(key=key.public_key())
+    import app.microsoft_multitenant as ms
+    monkeypatch.setattr(ms,"PyJWKClient",FakeJWKClient)
+    params={}
     seen=[]
     def transport_handler(request):
         seen.append((request.method,str(request.url)))
         if request.method=="POST" and "/token" in str(request.url):
+            current=datetime.now(timezone.utc)
+            signed=jwt.encode({
+                "tid":tenant_id,"oid":object_id,"sub":"test-user",
+                "iss":f"https://login.microsoftonline.com/{tenant_id}/v2.0",
+                "aud":"fake-client-id","nonce":params["nonce"],
+                "iat":int(current.timestamp()),
+                "exp":int((current+timedelta(hours=1)).timestamp())
+            },key,algorithm="RS256",headers={"kid":"unit-test"})
             return httpx.Response(200,json={"access_token":"dummy-access",
-                "refresh_token":"dummy-refresh","expires_in":3600,"token_type":"Bearer"})
+                "id_token":signed,"refresh_token":"dummy-refresh","expires_in":3600,"token_type":"Bearer"})
         if request.method=="GET" and str(request.url)=="https://graph.microsoft.com/v1.0/me":
-            return httpx.Response(200,json={"userPrincipalName":"tester@example.test","mail":"tester@example.test"})
+            return httpx.Response(200,json={"id":object_id,"userPrincipalName":"tester@example.test","mail":"tester@example.test"})
         if request.method=="GET" and "mailFolders/inbox/messages" in str(request.url):
             return httpx.Response(200,json={"value":[{"id":"M1","subject":"Test request"}]})
         raise AssertionError(f"Unexpected network request: {request}")
@@ -183,6 +207,7 @@ def test_microsoft_oauth_callback_and_graph_diagnostic_mocked(monkeypatch):
     assert start.status_code==303
     query=parse_qs(urlsplit(start.headers["location"]).query)
     state=query["state"][0]
+    params["nonce"]=query["nonce"][0]
     assert query["code_challenge_method"]==["S256"]
     assert len(query["code_challenge"][0])==43
     callback=client.get("/integrations/callback/microsoft",
@@ -193,6 +218,10 @@ def test_microsoft_oauth_callback_and_graph_diagnostic_mocked(monkeypatch):
             MailConnection.company_id==company_id,MailConnection.address=="tester@example.test"))
         assert conn is not None
         assert conn.access_ciphertext!="dummy-access"
+        binding=db.scalar(select(MicrosoftTenantBinding).where(MicrosoftTenantBinding.company_id==company_id))
+        assert binding is not None
+        assert binding.tenant_id==tenant_id
+        assert binding.bound_by_object_id==object_id
         cid=conn.id
     diag=client.post(f"/integrations/{cid}/test",data={"csrf_token":csrf})
     assert diag.status_code==200,diag.text
@@ -201,19 +230,17 @@ def test_microsoft_oauth_callback_and_graph_diagnostic_mocked(monkeypatch):
     assert payload["mailbox_readable"] is True
     assert payload["sending_enabled"] is False
     assert any("/token" in url for _,url in seen)
-    # A previously bound Kaki company cannot silently switch to a different
-    # Entra tenant even when the new token is cryptographically valid.
     start2=client.post("/integrations/connect/microsoft",
         data={"csrf_token":csrf},follow_redirects=False)
     assert start2.status_code==303
-    params["nonce"]=parse_qs(urlsplit(start2.headers["location"]).query)["nonce"][0]
-    state2=parse_qs(urlsplit(start2.headers["location"]).query)["state"][0]
+    query2=parse_qs(urlsplit(start2.headers["location"]).query)
+    params["nonce"]=query2["nonce"][0]
     tenant_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     second=client.get("/integrations/callback/microsoft",
-        params={"code":"valid-code-from-different-tenant","state":state2},
+        params={"code":"valid-code-from-a-different-tenant","state":query2["state"][0]},
         follow_redirects=False)
     assert second.status_code==403
     with Session() as db:
-        binding=db.scalar(select(MicrosoftTenantBinding).where(
+        original=db.scalar(select(MicrosoftTenantBinding).where(
             MicrosoftTenantBinding.company_id==company_id))
-        assert binding.tenant_id=="12345678-1234-1234-1234-123456789abc"
+        assert original.tenant_id=="12345678-1234-1234-1234-123456789abc"
