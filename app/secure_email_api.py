@@ -78,7 +78,9 @@ def connections(request:Request):
         rows=db.scalars(select(MailConnection).where(MailConnection.company_id==c.id).order_by(MailConnection.id)).all()
         data=[{"id":row.id,"provider":row.provider,"address":row.address,"status":row.status,"last_sync":str(row.last_sync_at or "")[:19]} for row in rows]
         company=c.name
-    return request.app.state.templates.TemplateResponse(request,"integrations.html",{"request":request,"user":request.session["user"],"csrf":request.session["csrf"],"company":company,"connections":data})
+        binding=db.scalar(select(MicrosoftTenantBinding).where(MicrosoftTenantBinding.company_id==c.id))
+        linked_tenant=binding.tenant_id if binding else None
+    return request.app.state.templates.TemplateResponse(request,"integrations.html",{"request":request,"user":request.session["user"],"csrf":request.session["csrf"],"company":company,"connections":data,"linked_tenant":linked_tenant})
 @router.post("/connect/{provider}")
 def begin(request:Request,provider:str,csrf_token:str=Form(...)):
     require_role(request,'admin',csrf=csrf_token)

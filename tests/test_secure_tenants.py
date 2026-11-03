@@ -201,3 +201,19 @@ def test_microsoft_oauth_callback_and_graph_diagnostic_mocked(monkeypatch):
     assert payload["mailbox_readable"] is True
     assert payload["sending_enabled"] is False
     assert any("/token" in url for _,url in seen)
+    # A previously bound Kaki company cannot silently switch to a different
+    # Entra tenant even when the new token is cryptographically valid.
+    start2=client.post("/integrations/connect/microsoft",
+        data={"csrf_token":csrf},follow_redirects=False)
+    assert start2.status_code==303
+    params["nonce"]=parse_qs(urlsplit(start2.headers["location"]).query)["nonce"][0]
+    state2=parse_qs(urlsplit(start2.headers["location"]).query)["state"][0]
+    tenant_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    second=client.get("/integrations/callback/microsoft",
+        params={"code":"valid-code-from-different-tenant","state":state2},
+        follow_redirects=False)
+    assert second.status_code==403
+    with Session() as db:
+        binding=db.scalar(select(MicrosoftTenantBinding).where(
+            MicrosoftTenantBinding.company_id==company_id))
+        assert binding.tenant_id=="12345678-1234-1234-1234-123456789abc"

@@ -14,3 +14,4 @@ openpyxl==3.1.5
 python-docx==1.2.0
 cryptography==46.0.3
 alembic==1.16.5
+PyJWT[crypto]==2.10.1
