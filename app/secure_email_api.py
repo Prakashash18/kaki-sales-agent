@@ -16,11 +16,12 @@ import httpx
 from .db import Base,Session,engine
 from .company_settings import CompanyProfile
 from .identity import require_role, company_for_request
+from .microsoft_multitenant import MicrosoftTenantBinding, verified_microsoft_identity
 from .agent import classify
 
 router=APIRouter(prefix="/integrations")
 SCOPES={
-  "microsoft":"offline_access User.Read Mail.Read",
+  "microsoft":"openid offline_access User.Read Mail.Read",
   "google":"openid email https://www.googleapis.com/auth/gmail.readonly"
 }
 from .email_connectors import MailConnection
@@ -64,10 +65,9 @@ def client_config(provider):
     return cid,secret,public+f"/integrations/callback/{provider}"
 def oauth_base(provider):
     if provider == "microsoft":
-        tenant=os.getenv("MICROSOFT_TENANT_ID","organizations").strip()
-        if not re.fullmatch(r"[0-9a-fA-F-]{36}|organizations",tenant):
-            raise HTTPException(503,"Invalid Microsoft tenant ID")
-        return "https://login.microsoftonline.com/"+tenant+"/oauth2/v2.0"
+        # Kaki itself has one multitenant application registration.
+        # Each customer's validated tenant ID is stored in PostgreSQL.
+        return "https://login.microsoftonline.com/organizations/oauth2/v2.0"
     return "https://oauth2.googleapis.com"
 def redirect(path):return RedirectResponse(path,status_code=303)
 @router.get("")
@@ -78,18 +78,22 @@ def connections(request:Request):
         rows=db.scalars(select(MailConnection).where(MailConnection.company_id==c.id).order_by(MailConnection.id)).all()
         data=[{"id":row.id,"provider":row.provider,"address":row.address,"status":row.status,"last_sync":str(row.last_sync_at or "")[:19]} for row in rows]
         company=c.name
-    return request.app.state.templates.TemplateResponse(request,"integrations.html",{"request":request,"user":request.session["user"],"csrf":request.session["csrf"],"company":company,"connections":data})
+        binding=db.scalar(select(MicrosoftTenantBinding).where(MicrosoftTenantBinding.company_id==c.id))
+        linked_tenant=binding.tenant_id if binding else None
+    return request.app.state.templates.TemplateResponse(request,"integrations.html",{"request":request,"user":request.session["user"],"csrf":request.session["csrf"],"company":company,"connections":data,"linked_tenant":linked_tenant})
 @router.post("/connect/{provider}")
 def begin(request:Request,provider:str,csrf_token:str=Form(...)):
     require_role(request,'admin',csrf=csrf_token)
     cid,secret,redirect_uri=client_config(provider)
     with Session() as db:c=company_for_request(db,request);company_id=c.id
     nonce=secrets.token_urlsafe(24)
+    id_nonce=secrets.token_urlsafe(24)
     verifier=secrets.token_urlsafe(64)
     challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).decode().rstrip("=")
-    request.session["oauth_pending"]={"provider":provider,"company_id":company_id,"nonce":nonce,"verifier":verifier}
+    request.session["oauth_pending"]={"provider":provider,"company_id":company_id,"nonce":nonce,
+                                       "id_nonce":id_nonce,"verifier":verifier}
     if provider=="microsoft":
-        url=oauth_base(provider)+"/authorize?"+urlencode({"client_id":cid,"redirect_uri":redirect_uri,"response_type":"code","response_mode":"query","scope":SCOPES[provider],"state":nonce,"code_challenge":challenge,"code_challenge_method":"S256"})
+        url=oauth_base(provider)+"/authorize?"+urlencode({"client_id":cid,"redirect_uri":redirect_uri,"response_type":"code","response_mode":"query","scope":SCOPES[provider],"state":nonce,"nonce":id_nonce,"code_challenge":challenge,"code_challenge_method":"S256"})
     else:
         url="https://accounts.google.com/o/oauth2/v2/auth?"+urlencode({"client_id":cid,"redirect_uri":redirect_uri,"response_type":"code","scope":SCOPES[provider],"access_type":"offline","prompt":"consent","state":nonce})
     return RedirectResponse(url,status_code=303)
@@ -101,8 +105,9 @@ async def callback(request:Request,provider:str,code:str="",state:str="",error:s
     if not pending or pending.get("provider")!=provider or not secrets.compare_digest(pending.get("nonce",""),state) or not code:raise HTTPException(400,"Invalid or expired OAuth state")
     cid,secret,redirect_uri=client_config(provider)
     with Session() as db:
-        c=company_for_request(db,request)
+        c=company_for_request(db,request,"admin")
         if c.id!=pending["company_id"]:raise HTTPException(403,"Company changed during sign-in")
+        company_id=c.id
     endpoint=(oauth_base(provider)+"/token") if provider=="microsoft" else "https://oauth2.googleapis.com/token"
     form={"client_id":cid,"client_secret":secret,"redirect_uri":redirect_uri,"grant_type":"authorization_code","code":code}
     if provider=="microsoft":
@@ -112,17 +117,42 @@ async def callback(request:Request,provider:str,code:str="",state:str="",error:s
         form["code_verifier"]=verifier
     async with httpx.AsyncClient(timeout=25) as http:
         r=await http.post(endpoint,data=form);r.raise_for_status();token=r.json()
+        verified_identity=None
         if provider=="microsoft":
+            verified_identity=verified_microsoft_identity(token.get("id_token",""),cid,pending.get("id_nonce",""))
             me=await http.get("https://graph.microsoft.com/v1.0/me",headers={"Authorization":"Bearer "+token["access_token"]})
-            me.raise_for_status();address=me.json().get("mail") or me.json().get("userPrincipalName")
+            me.raise_for_status()
+            profile=me.json()
+            # Graph /me must be from the same tenant/user as the verified ID token.
+            if str(profile.get("id","")).lower()!=verified_identity["object_id"]:
+                raise HTTPException(403,"Microsoft account identity mismatch")
+            address=profile.get("mail") or profile.get("userPrincipalName")
         else:
             me=await http.get("https://openidconnect.googleapis.com/v1/userinfo",headers={"Authorization":"Bearer "+token["access_token"]})
             me.raise_for_status();address=me.json()["email"]
     if not address:raise HTTPException(502,"Could not determine connected mailbox")
     with Session() as db:
-        row=db.scalar(select(MailConnection).where(MailConnection.company_id==c.id,MailConnection.provider==provider,MailConnection.address==address))
+        # A company owner claims the first authorised Microsoft tenant.
+        # All future connections must match that verified tenant.
+        if provider=="microsoft":
+            binding=db.scalar(select(MicrosoftTenantBinding).where(
+                MicrosoftTenantBinding.company_id==company_id).with_for_update())
+            if binding and binding.tenant_id!=verified_identity["tenant_id"]:
+                raise HTTPException(403,"This Kaki company is already linked to another Microsoft tenant")
+            if not binding:
+                from .identity import Membership
+                member=db.scalar(select(Membership).where(
+                    Membership.account_id==request.session["uid"],
+                    Membership.company_id==company_id, Membership.active.is_(True)))
+                if not member or member.role!="owner":
+                    raise HTTPException(403,"Only a company owner can bind its first Microsoft tenant")
+                db.add(MicrosoftTenantBinding(company_id=company_id,
+                    tenant_id=verified_identity["tenant_id"],
+                    bound_by_account_id=request.session["uid"],
+                    bound_by_object_id=verified_identity["object_id"]))
+        row=db.scalar(select(MailConnection).where(MailConnection.company_id==company_id,MailConnection.provider==provider,MailConnection.address==address))
         if not row:
-            row=MailConnection(company_id=c.id,provider=provider,address=address,access_ciphertext="")
+            row=MailConnection(company_id=company_id,provider=provider,address=address,access_ciphertext="")
             db.add(row)
         row.access_ciphertext=encrypt(token["access_token"])
         if token.get("refresh_token"):row.refresh_ciphertext=encrypt(token["refresh_token"])
@@ -134,7 +164,16 @@ async def access_token(row):
         return decrypt(row.access_ciphertext)
     if not row.refresh_ciphertext:raise HTTPException(409,"Reconnect mailbox to renew access")
     cid,secret,_=client_config(row.provider)
-    endpoint=(oauth_base(row.provider)+"/token") if row.provider=="microsoft" else "https://oauth2.googleapis.com/token"
+    if row.provider=="microsoft":
+        from .microsoft_multitenant import TENANT_PATTERN
+        with Session() as db:
+            binding=db.scalar(select(MicrosoftTenantBinding).where(MicrosoftTenantBinding.company_id==row.company_id))
+            if not binding or not TENANT_PATTERN.fullmatch(binding.tenant_id):
+                raise HTTPException(403,"Microsoft tenant is not bound to this company")
+            authority="https://login.microsoftonline.com/"+binding.tenant_id+"/oauth2/v2.0"
+        endpoint=authority+"/token"
+    else:
+        endpoint="https://oauth2.googleapis.com/token"
     payload={"grant_type":"refresh_token","refresh_token":decrypt(row.refresh_ciphertext),"client_id":cid,"client_secret":secret}
     if row.provider=="microsoft":payload["scope"]=SCOPES[row.provider]
     async with httpx.AsyncClient(timeout=25) as http:

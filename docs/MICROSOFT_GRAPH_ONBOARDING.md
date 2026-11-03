@@ -1,3 +1,5 @@
+> **Updated multitenant onboarding:** See [MULTITENANT_ONBOARDING.md](MULTITENANT_ONBOARDING.md). The instructions below describe the earlier single-tenant staging prototype and should not be used to onboard additional companies. For the multitenant connector, do not set MICROSOFT_TENANT_ID per company; Kaki uses /organizations and stores verified tenant bindings in PostgreSQL.
+
 # Kaki staging: Microsoft 365 Business Basic onboarding
 
 Scope: read-only delegated Microsoft Graph integration for a *single user's own Exchange Online mailbox*. Shared mailbox integration will need Mail.Read.Shared and /users/{mailbox} endpoint and is NOT available in this revision.
