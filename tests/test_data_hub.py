@@ -98,6 +98,9 @@ def test_graph_import_and_resync_preserve_source(monkeypatch):
         records=db.scalars(select(DataRecord).where(DataRecord.source_id==sid)).all()
         assert len(records)==2
     assert "JOB-101" in client.get("/data-hub",params={"q":"JOB-101"}).text
+    asked=client.get("/data-hub/ask",params={"question":"show completed jobs"})
+    assert asked.status_code==200
+    assert asked.json()["results"][0]["data"]["job_id"]=="JOB-101"
     # Same eTag means no change.
     same=client.post(f"/data-hub/sources/{sid}/sync",data={"csrf_token":csrf},follow_redirects=False)
     assert same.status_code==303
