@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block content %}<p><a href="/integrations/inbox">← Inbox</a></p><h1>{{item.subject}}</h1><p>From {{item.sender}} · {{item.category}}</p><div class="card"><pre>{{item.body}}</pre></div>{% endblock %>
