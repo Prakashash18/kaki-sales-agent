@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block content %}
+<div class="row"><div><h1>Workflow Studio</h1><p>Design · Version · Simulate · Approve · Publish</p></div><span class="badge">{{company}}</span></div>
+<p><a href="/">Inbox</a> · <a href="/settings">Company settings</a> · <a href="/integrations">Email connections</a></p>
+<div class="card"><h2>Start with a workflow template</h2><p>Every workflow begins as an editable draft. Publishing requires valid transitions and a human review.</p>
+<form method="post" action="/flows/new"><input type="hidden" name="csrf_token" value="{{csrf}}">
+<label>Workflow name</label><input name="name" value="New RFQ process" maxlength="200" required><br>
+<label>Template</label><select name="template"><option value="rfq">RFQ acknowledgement + approval</option><option value="basic">Basic email triage</option></select><br><br><button>Create draft</button></form></div>
+<div class="card"><h2>Saved workflows</h2>
+{% for w in flows %}<div class="email">
+<div class="row"><strong>{{w.name}}</strong><span class="badge">{% if w.archived %}Archived{% else %}Active{% endif %}</span></div>
+<p>{% for v in w.versions %}<a href="/flows/{{w.id}}/edit/{{v.id}}">v{{v.number}} ({{v.status}})</a>&nbsp; {% endfor %}</p>
+<div class="actions"><form method="post" action="/flows/{{w.id}}/clone" class="inline"><input name="csrf_token" value="{{csrf}}" type="hidden"><button class="secondary">Duplicate</button></form>
+<form method="post" action="/flows/{{w.id}}/archive" class="inline"><input name="csrf_token" value="{{csrf}}" type="hidden"><input type="hidden" name="archived" value="{{'false' if w.archived else 'true'}}"><button class="secondary">{{'Restore' if w.archived else 'Archive'}}</button></form>
+{% if not w.archived %}<form class="inline" action="/flows/{{w.id}}/start" method="post"><input name="csrf_token" value="{{csrf}}" type="hidden"><input name="subject" placeholder="Test subject" value="RFQ request" style="margin-bottom:4px"><input name="body" placeholder="Test email content" value="Please quote 12 units" style="margin-bottom:4px"><button>Run published manual workflow</button></form>{% endif %}</div>
+</div>{% else %}<p>No workflows yet. Create one from a template.</p>{% endfor %}</div>
+<div class="card"><h2>Execution monitor</h2><form method="post" action="/flows/runs/advance-due"><input type="hidden" name="csrf_token" value="{{csrf}}"><button class="secondary">Resume due waits (demo)</button></form>{% for run in runs %}<div class="email"><a href="/flows/runs/{{run.id}}">Run #{{run.id}}</a> · Workflow {{run.workflow_id}} · <span class="badge">{{run.status}}</span><span class="muted">At {{run.node}}</span></div>{% else %}<p>No runs yet.</p>{% endfor %}</div>
+<div class="card"><h2>Safety boundary</h2><p>This is a single-administrator development environment. Manual simulations and approvals work; external sending is blocked, and automatic mailbox triggers require a separately operated event worker. Company isolation and a durable database are required before SaaS release.</p></div>
+{% endblock %}

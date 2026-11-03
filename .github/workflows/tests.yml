@@ -1,20 +1,53 @@
-name: Kaki tests
+name: Kaki security and database tests
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 jobs:
-  tests:
+  sqlite-tests:
     runs-on: ubuntu-latest
     env:
       ADMIN_USER: admin
       ADMIN_PASSWORD: test-password
       SESSION_SECRET: test-only-session-key
       DISABLE_SEND: "true"
+      KAKI_ALLOW_SINGLE_COMPANY_OAUTH: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt beautifulsoup4
+      - run: python -m pytest -q
+  postgres-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kaki
+          POSTGRES_PASSWORD: ci-only-pass
+          POSTGRES_DB: kaki_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kaki -d kaki_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://kaki:ci-only-pass@127.0.0.1:5432/kaki_ci
+      KAKI_AUTO_CREATE_SCHEMA: "false"
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: test-password
+      SESSION_SECRET: test-only-session-key
+      DISABLE_SEND: "true"
+      KAKI_ALLOW_SINGLE_COMPANY_OAUTH: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt beautifulsoup4
+      - run: python -m alembic upgrade head
       - run: python -m pytest -q

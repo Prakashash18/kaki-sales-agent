@@ -32,4 +32,5 @@ class Audit(Base):
     action:Mapped[str]=mapped_column(String(80))
     actor:Mapped[str]=mapped_column(String(200))
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
-Base.metadata.create_all(engine)
+if os.getenv('KAKI_AUTO_CREATE_SCHEMA', 'true' if url.startswith('sqlite') else 'false').lower() == 'true':
+    Base.metadata.create_all(engine)
