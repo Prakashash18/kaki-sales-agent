@@ -1,0 +1,60 @@
+# Optional Render Blueprint for a NEW single-company Kaki deployment.
+# Using this Blueprint creates a PAID web service and paid persistent disk.
+# It is not the root render.yaml and will not modify existing services unless
+# explicitly selected and applied through the Render dashboard.
+services:
+  - type: web
+    name: kaki-single-company-pilot
+    runtime: python
+    repo: https://github.com/Prakashash18/kaki-sales-agent
+    branch: feature/single-company-sharepoint-sqlite
+    plan: starter
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m alembic upgrade head && uvicorn app.secure_main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    disk:
+      name: kaki-sqlite-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: APP_ENV
+        value: production
+      - key: KAKI_SINGLE_COMPANY
+        value: 'true'
+      - key: DATABASE_URL
+        value: sqlite:////var/data/kaki.db
+      - key: KAKI_AUTO_CREATE_SCHEMA
+        value: 'false'
+      - key: KAKI_ENABLE_DUE_WORKER
+        value: 'true'
+      - key: KAKI_ENABLE_BACKUP_EXPORT
+        value: 'true'
+      - key: DISABLE_SEND
+        value: 'true'
+      - key: KAKI_ENABLE_MAIL_SYNC
+        value: 'false'
+      - key: KAKI_ENABLE_OAUTH
+        value: 'false'
+      - key: KAKI_ENABLE_LEGACY_GRAPH_SYNC
+        value: 'false'
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: KAKI_BOOTSTRAP_TOKEN
+        sync: false
+      - key: KAKI_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: KAKI_PUBLIC_URL
+        sync: false
+      - key: KAKI_ALLOWED_HOSTS
+        sync: false
+      - key: MICROSOFT_TENANT_ID
+        sync: false
+      - key: MICROSOFT_OAUTH_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
