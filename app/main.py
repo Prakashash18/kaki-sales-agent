@@ -18,6 +18,12 @@ from .company_settings import router as settings_router, active_company_context
 app.include_router(operations_router)
 app.include_router(documents_router)
 app.include_router(settings_router)
+from .workflow_api import router as workflow_router
+from .email_connectors import router as email_connector_router
+from .db import Base, engine
+app.include_router(workflow_router)
+app.include_router(email_connector_router)
+Base.metadata.create_all(engine)
 def go(path='/'):return RedirectResponse(path,status_code=303)
 def permitted(request,token):return bool(request.session.get('user')) and bool(token) and secrets.compare_digest(token,request.session.get('csrf',''))
 def context(request,**items):return {'request':request,'user':request.session.get('user'),'csrf':request.session.get('csrf'),**items}
@@ -97,7 +103,7 @@ async def send(request:Request,id:int,csrf_token:str=Form(...)):
     if os.getenv('DISABLE_SEND','true').lower()!='false':raise HTTPException(403,'Sending disabled')
     with Session() as db:
         e=db.get(Email,id)
-        if not e or e.status!='approved' or e.graph_id.startswith('demo'):raise HTTPException(409)
+        if not e or e.status!='approved' or e.graph_id.startswith(('demo','gm:','ms:')):raise HTTPException(409)
         e.status='sending';db.add(Audit(email_id=id,action='send_attempt',actor=request.session['user']));db.commit()
         message_id=e.graph_id;draft=e.draft
     try:await send_reply(message_id,draft)
