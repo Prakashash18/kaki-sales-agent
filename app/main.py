@@ -14,8 +14,10 @@ t=Jinja2Templates(directory='app/templates')
 app.state.templates=t
 from .operations import router as operations_router
 from .documents import router as documents_router
+from .company_settings import router as settings_router, active_company_context
 app.include_router(operations_router)
 app.include_router(documents_router)
+app.include_router(settings_router)
 def go(path='/'):return RedirectResponse(path,status_code=303)
 def permitted(request,token):return bool(request.session.get('user')) and bool(token) and secrets.compare_digest(token,request.session.get('csrf',''))
 def context(request,**items):return {'request':request,'user':request.session.get('user'),'csrf':request.session.get('csrf'),**items}
@@ -46,7 +48,7 @@ def demo(request:Request,csrf_token:str=Form(...)):
     with Session() as db:
         for uid,sender,subject,body in examples:
             if db.scalar(select(Email).where(Email.graph_id==uid)):continue
-            a=classify(subject,body,uid=='demo2')
+            a=classify(subject,body,uid=='demo2', active_company_context())
             db.add(Email(graph_id=uid,sender=sender,subject=subject,body=body,category=a['category'],summary=a['summary'],draft=a['draft'],confidence=a['confidence'],source=a['source'],has_attachments=uid=='demo2'))
         db.commit()
     return go()
@@ -59,7 +61,7 @@ async def sync(request:Request,csrf_token:str=Form(...)):
         for m in messages:
             if db.scalar(select(Email).where(Email.graph_id==m['id'])):continue
             body=re.sub(r'<[^>]*>',' ',m.get('body',{}).get('content',''))[:30000]
-            a=classify(m.get('subject',''),body,m.get('hasAttachments',False))
+            a=classify(m.get('subject',''),body,m.get('hasAttachments',False), active_company_context())
             db.add(Email(graph_id=m['id'],sender=m.get('from',{}).get('emailAddress',{}).get('address',''),subject=m.get('subject',''),body=body,category=a['category'],summary=a['summary'],draft=a['draft'],confidence=a['confidence'],source=a['source'],has_attachments=m.get('hasAttachments',False)))
         db.commit()
     return go()

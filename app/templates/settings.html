@@ -1,0 +1,34 @@
+{% extends 'base.html' %}{% block content %}
+<div class="row"><div><h1>Company onboarding</h1><p>Configure Kaki for each company's sales documents and workflow conventions.</p></div><span class="badge">Human-reviewed settings</span></div>
+<div class="card"><h2>1. Create a company profile</h2><form method="post" action="/settings/companies"><input type="hidden" name="csrf_token" value="{{csrf}}">
+<label>Company name</label><input name="name" placeholder="Example: Sea Hover Technologies" required maxlength="200"><br>
+<label>Industry</label><input name="industry" placeholder="Marine engineering equipment" maxlength="180"><br>
+<label>Response style</label><select name="reply_tone"><option value="professional">Professional</option><option value="concise">Concise</option><option value="friendly">Friendly</option></select><br><br>
+<label>Default currency</label><input name="default_currency" maxlength="3" value="SGD"><br>
+<label>Company guidance (non-authoritative; pricing and fulfilment must come from verified records)</label><textarea name="policy_notes" maxlength="3000" placeholder="Examples: Acknowledge RFQs promptly. Require staff approval for all quotations."></textarea><br>
+<button>Create company</button></form></div>
+{% for c in companies %}
+<div class="card"><div class="row"><div><h2>{{c.name}} {% if c.active %}<span class="badge">Active in Kaki</span>{% endif %}</h2><p>{{c.industry or 'Industry not specified' }} · {{c.default_currency}} · {{c.reply_tone}} responses</p></div>
+{% if not c.active %}<form action="/settings/companies/{{c.id}}/activate" method="post"><input type="hidden" name="csrf_token" value="{{csrf}}"><button class="secondary">Make active</button></form>{% endif %}</div>
+<h3>2. Teach Kaki this company's documents</h3>
+<p>Upload a sample document to detect headings and candidate fields. The original file and customer values are discarded after analysis; only the proposed field labels are saved. PDFs with scanned images will need a later OCR module.</p>
+<form action="/settings/companies/{{c.id}}/documents" method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{csrf}}">
+<label>What type of document is it?</label><select name="doc_type">{% for key,label in doc_types.items() %}<option value="{{key}}">{{label}}</option>{% endfor %}</select><br><br>
+<label>Template or supplier name (optional)</label><input name="name" placeholder="Example: Marine supplier quotation"><br>
+<label>Sample file · PDF, Word, Excel, CSV or TXT · maximum 5 MB</label><input type="file" name="sample" accept=".pdf,.docx,.xlsx,.csv,.txt" required><br>
+<button>Analyse sample</button></form>
+<h3>3. Review field mappings</h3>
+{% for d in docs if d.company_id==c.id %}
+<div class="email"><div class="row"><strong>{{d.name}}</strong><span class="badge">{{d.status}}</span></div><p>{{doc_types[d.doc_type]}} · {{d.source_filename}}</p>
+<p class="muted">Edit the aliases in JSON. Each key represents a Kaki business field; each array lists the labels used on company documents. Approve only after checking them.</p>
+{% if d.status!='disabled' %}
+<form action="/settings/document-profiles/{{d.id}}/approve" method="post"><input type="hidden" name="csrf_token" value="{{csrf}}">
+<label>Detected field mappings</label><textarea name="mapping_json" rows="8" style="min-height:130px;font-family:monospace">{{d.mapping|tojson(indent=2)}}</textarea><br>
+<button>{% if d.status=='approved' %}Save revised mapping{% else %}Approve mapping{% endif %}</button></form>
+<form action="/settings/document-profiles/{{d.id}}/disable" method="post" style="margin-top:10px"><input type="hidden" name="csrf_token" value="{{csrf}}"><button class="secondary">Disable this mapping</button></form>
+{% endif %}</div>
+{% else %}<p>No sample documents configured yet.</p>{% endfor %}
+</div>
+{% else %}<div class="card"><p>Create the first company profile to start onboarding.</p></div>{% endfor %}
+<div class="card"><h2>Production-readiness notice</h2><p>Profiles are currently managed by a single administrator and are not securely isolated between independent customers. Do not onboard multiple external companies or upload confidential samples until persistent PostgreSQL, organisational login and tenant isolation are configured. AI sending remains disabled.</p></div>
+{% endblock %}
