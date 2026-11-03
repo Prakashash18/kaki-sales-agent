@@ -181,7 +181,10 @@ def test_microsoft_oauth_callback_and_graph_diagnostic_mocked(monkeypatch):
         lambda **kwargs: original(transport=httpx.MockTransport(transport_handler),**kwargs))
     start=client.post("/integrations/connect/microsoft",data={"csrf_token":csrf},follow_redirects=False)
     assert start.status_code==303
-    state=parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+    query=parse_qs(urlsplit(start.headers["location"]).query)
+    state=query["state"][0]
+    assert query["code_challenge_method"]==["S256"]
+    assert len(query["code_challenge"][0])==43
     callback=client.get("/integrations/callback/microsoft",
         params={"code":"simulated-code","state":state},follow_redirects=False)
     assert callback.status_code==303,callback.text
