@@ -23,7 +23,8 @@ from .email_connectors import router as email_connector_router
 from .db import Base, engine
 app.include_router(workflow_router)
 app.include_router(email_connector_router)
-Base.metadata.create_all(engine)
+if os.getenv('KAKI_AUTO_CREATE_SCHEMA', 'true' if os.getenv('DATABASE_URL','sqlite:').startswith('sqlite') else 'false').lower() == 'true':
+    Base.metadata.create_all(engine)
 def go(path='/'):return RedirectResponse(path,status_code=303)
 def permitted(request,token):return bool(request.session.get('user')) and bool(token) and secrets.compare_digest(token,request.session.get('csrf',''))
 def context(request,**items):return {'request':request,'user':request.session.get('user'),'csrf':request.session.get('csrf'),**items}
@@ -61,6 +62,8 @@ def demo(request:Request,csrf_token:str=Form(...)):
 @app.post('/sync')
 async def sync(request:Request,csrf_token:str=Form(...)):
     if not permitted(request,csrf_token):raise HTTPException(403)
+    if os.getenv('KAKI_ENABLE_LEGACY_GRAPH_SYNC','false').lower()!='true':
+        raise HTTPException(403,'Legacy Outlook sync is disabled by default')
     try:messages=await get_messages()
     except Exception as err:raise HTTPException(502,f'Graph sync failed: {type(err).__name__}')
     with Session() as db:
@@ -100,7 +103,7 @@ def reject(request:Request,id:int,csrf_token:str=Form(...)):
 @app.post('/emails/{id}/send')
 async def send(request:Request,id:int,csrf_token:str=Form(...)):
     if not permitted(request,csrf_token):raise HTTPException(403)
-    if os.getenv('DISABLE_SEND','true').lower()!='false':raise HTTPException(403,'Sending disabled')
+    raise HTTPException(403,'Legacy mailbox sending is disabled. Use the reviewed workflow connector when available.')
     with Session() as db:
         e=db.get(Email,id)
         if not e or e.status!='approved' or e.graph_id.startswith(('demo','gm:','ms:')):raise HTTPException(409)

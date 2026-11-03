@@ -1,3 +1,4 @@
+import os
 """Per-company configuration and document-format training.
 
 Uploads are processed in memory. Original documents and extracted values are never
@@ -66,7 +67,8 @@ class DocumentProfile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-Base.metadata.create_all(engine)
+if os.getenv('KAKI_AUTO_CREATE_SCHEMA', 'true' if os.getenv('DATABASE_URL','sqlite:').startswith('sqlite') else 'false').lower() == 'true':
+    Base.metadata.create_all(engine)
 
 def check(request, csrf):
     import secrets

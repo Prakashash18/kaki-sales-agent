@@ -1,3 +1,4 @@
+import os
 """Optional per-company Microsoft and Google OAuth connectors.
 
 No credentials are stored unless KAKI_TOKEN_ENCRYPTION_KEY is configured.
@@ -33,7 +34,8 @@ class MailConnection(Base):
     expires_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
     status:Mapped[str]=mapped_column(String(30),default="connected")
     last_sync_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
-Base.metadata.create_all(engine)
+if os.getenv('KAKI_AUTO_CREATE_SCHEMA', 'true' if os.getenv('DATABASE_URL','sqlite:').startswith('sqlite') else 'false').lower() == 'true':
+    Base.metadata.create_all(engine)
 def now():return datetime.now(timezone.utc)
 def require(request,csrf=None):
     if not request.session.get("user"):raise HTTPException(401)
@@ -56,6 +58,8 @@ def client_config(provider):
     cid=os.getenv(f"{tag}_OAUTH_CLIENT_ID")
     secret=os.getenv(f"{tag}_OAUTH_CLIENT_SECRET")
     public=os.getenv("KAKI_PUBLIC_URL","").rstrip("/")
+    if os.getenv("KAKI_ALLOW_SINGLE_COMPANY_OAUTH","false").lower()!="true":
+        raise HTTPException(503,"OAuth disabled until tenant membership and isolation are implemented")
     if not cid or not secret or not public or not public.startswith("https://"):raise HTTPException(503,f"{provider} OAuth not configured")
     crypto()
     if not os.getenv("DATABASE_URL","").startswith(("postgresql://","postgresql+psycopg://","postgres://")):
