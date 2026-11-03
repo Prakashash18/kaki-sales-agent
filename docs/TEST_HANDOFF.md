@@ -21,10 +21,11 @@ One Render paid web service for one company, with multiple staff users. Kaki's o
 1. Open /setup and enter the bootstrap token, company name, owner email, and strong password.
 2. Remove KAKI_BOOTSTRAP_TOKEN from Render after owner setup.
 3. Sign in; open /settings and create an invitation link for each employee. Share each link privately. Use roles owner/admin/manager/staff/viewer.
-4. Open /flows, create a test RFQ workflow, adjust nodes or chat-generated proposed definitions, simulate, save a new version, publish, start and approve/reject.
-5. Verify history and audit trace in /flows/runs/{id}.
-6. Export an owner backup from /settings. Restore and verify in an isolated test copy (not the live database).
-7. Test restart/redeployment persistence after the paid persistent disk is attached. Workflow runs, users and approvals should survive.
+4. Open /ops and create a synthetic customer, SKU and price. Create a quotation, add lines, export its PDF, approve with a manager role, register a matching PO and approve it. Staff must be denied manager-only approval and product-management actions.
+5. Open /flows, create a test RFQ workflow, adjust nodes or chat-generated proposed definitions, simulate, save a new version, publish, start and approve/reject.
+6. Verify history and audit trace in /flows/runs/{id}.
+7. Export an owner backup from /settings. Restore and verify in an isolated test copy (not the live database).
+8. Test restart/redeployment persistence after the paid persistent disk is attached. Workflow runs, users and approvals should survive.
 
 ## Microsoft 365 onboarding — when ready
 1. Register a Web application in Microsoft Entra. For one-company-per-deployment, single-tenant registration is sufficient. Kaki's redirect URI must equal https://YOUR_DOMAIN/integrations/callback/microsoft.
@@ -32,10 +33,11 @@ One Render paid web service for one company, with multiple staff users. Kaki's o
 3. Set MICROSOFT_TENANT_ID, MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET privately. Turn KAKI_ENABLE_OAUTH=true only after consent setup.
 4. Sign in to Kaki as owner/admin, open /integrations, click Connect Outlook, complete Microsoft OAuth, then click Test Microsoft Graph (read-only).
 5. Open /data-hub, search a SharePoint site, browse a document library, select an XLSX workbook, choose a business category and sheet, review and approve suggested column mapping, then import.
-6. Verify inventory, price list, customers and job rows in Data Hub search; change the SharePoint Excel file and click Sync changes to verify update. Files are read-only from Kaki.
+6. Verify inventory, price list, customers and job rows in Data Hub search and Ask Kaki (e.g. "Which jobs are completed?"); change the SharePoint Excel file and click Sync changes to verify update. Files are read-only from Kaki.
 7. Keep KAKI_ENABLE_MAIL_SYNC=false until test data access and storage permissions are reviewed. Keep outbound sending disabled.
 
 ## Smoke and negative tests
+- Before Microsoft connection, /flows, /ops, /settings and /data-hub must load with owner credentials; /system/readiness reports which integration steps remain unconfigured.
 - Wrong password / repeated login → rejected/throttled.
 - Staff cannot invite or publish; manager approval works.
 - Company creation and company switching → HTTP 403 in single-company mode.
