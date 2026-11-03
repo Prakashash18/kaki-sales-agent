@@ -62,3 +62,19 @@ Use fabricated or approved test messages. Imported messages are isolated by comp
 - Kaki login redirect after Microsoft consent: make sure SESSION_SECRET is stable and session cookie is SameSite=Lax.
 
 Note: the current secure staging branch is a controlled pilot, not a production security certification. MFA, backups, incident response, durable background sync, and shared-mailbox support are further work.
+
+## 6. Verified staging status and current blocker (November 3, 2026)
+
+The secure staging application is deployed from the feature/secure-staging-pilot GitHub branch at https://kaki-secure-staging.onrender.com. Its current Render deployment is failing **before startup**, with RuntimeError: DATABASE_URL is required for migrations.
+
+Resolve it privately in the Render dashboard:
+
+1. Open the development PostgreSQL instance at https://dashboard.render.com/d/dpg-dbkv4f0u01pc73ed9fig-a, choose **Connect**, and copy the **Internal Database URL**.
+2. Open the secure staging service at https://dashboard.render.com/web/srv-dbkvf37f3r2c7381kge0 > **Environment**.
+3. Add DATABASE_URL with the copied full internal URL, then save and deploy. Do not paste this credential into GitHub, ChatGPT, or screenshots.
+4. Add SESSION_SECRET (40+ random characters), KAKI_BOOTSTRAP_TOKEN (different random secret), and KAKI_TOKEN_ENCRYPTION_KEY (Fernet key). The startup command runs Alembic migrations on the new empty database. After the service reports Live, use /setup to create the owner account.
+5. For Graph onboarding only, add MICROSOFT_TENANT_ID, MICROSOFT_OAUTH_CLIENT_ID, MICROSOFT_OAUTH_CLIENT_SECRET and KAKI_ENABLE_OAUTH=true. Leave KAKI_ENABLE_MAIL_SYNC=false and DISABLE_SEND=true until the read-only Graph diagnostic succeeds.
+
+The code now uses PKCE (S256) in the Microsoft OAuth authorization code flow. GitHub CI passed 24 automated tests on SQLite and on PostgreSQL 16, but live Microsoft consent and real mailbox access have not yet been verified.
+
+**Shared mailbox limitation:** The current onboarding connects the signed-in user's own mailbox. Reading a delegated shared mailbox needs a separately reviewed Mail.Read.Shared scope and /users/{mailbox} endpoint; automated change subscriptions for shared mailboxes require application-level permissions. Test your own mailbox first.
