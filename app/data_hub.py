@@ -29,7 +29,7 @@ FIELDS = {
     "inventory": ("sku","description","quantity","location","uom"),
     "pricing": ("sku","customer","supplier","currency","unit_price","valid_from","valid_to"),
     "customers": ("customer_id","name","email","phone","contact"),
-    "jobs": ("job_id","customer","po_number","description","status","assigned_to","due_date","completed_date"),
+    "jobs": ("job_id","customer","po_number","description","status","assigned_to","due_date","completed_date","invoice_status","invoice_number"),
 }
 ALIASES = {
     "sku":("sku","part no","part number","stock code","item code","model"),
@@ -45,6 +45,8 @@ ALIASES = {
     "po_number":("po number","po no","purchase order"),
     "email":("email","email address"),
     "currency":("currency","ccy"),
+    "invoice_status":("invoice status","invoiced","invoice state"),
+    "invoice_number":("invoice no","invoice number"),
     "supplier":("supplier","vendor"),
     "location":("location","warehouse"),
 }
@@ -183,6 +185,57 @@ def connection(db,request,connection_id=None):
     row=db.scalar(query.order_by(MailConnection.id))
     if not row:raise HTTPException(409,"Connect a Microsoft 365 account before SharePoint import")
     return c,row
+
+
+@router.get("/ask")
+def ask_kaki(request:Request,question:str):
+    """Deterministic, source-grounded business-data question answering."""
+    require_role(request,"viewer")
+    text_question=question.strip().lower()
+    if not 3<=len(text_question)<=300:raise HTTPException(400,"Question must be 3–300 characters")
+    if any(w in text_question for w in ("job","work order","completed","overdue")):category="jobs"
+    elif any(w in text_question for w in ("stock","inventory","quantity","available")):category="inventory"
+    elif any(w in text_question for w in ("price","cost","pricing")):category="pricing"
+    elif any(w in text_question for w in ("customer","client","contact")):category="customers"
+    else:category=None
+    stop={"show","me","all","the","a","an","what","which","is","are","in","for",
+          "of","at","with","my","our","their","from","how","many","list","find","check",
+          "status","job","jobs","stock","inventory","customer","customers","price",
+          "pricing","cost","quantity","available","completed","complete","overdue","please",
+          "tell","about","and","or","current","do","we","have","on","any"}
+    terms=[t for t in re.findall(r"[a-z0-9_-]+",text_question) if t not in stop and len(t)>1]
+    want_completed="complete" in text_question or "finished" in text_question or "done" in text_question
+    want_overdue="overdue" in text_question or "late" in text_question
+    with Session() as db:
+        c=company_for_request(db,request)
+        q=select(DataRecord,DataSource).join(DataSource,DataRecord.source_id==DataSource.id).where(
+            DataRecord.company_id==c.id,DataSource.company_id==c.id,
+            DataSource.status=="active")
+        if category:q=q.where(DataSource.kind==category)
+        results=db.execute(q.limit(5000)).all()
+        found=[]
+        from datetime import date
+        for record,src in results:
+            value=json.loads(record.payload_json)
+            if terms and not all(any(t in str(x or "").lower() for x in value.values()) for t in terms):
+                continue
+            if want_completed and src.kind=="jobs":
+                if str(value.get("status","")).lower() not in ("completed","complete","finished","done","closed"):
+                    continue
+            if want_overdue and src.kind=="jobs":
+                status=str(value.get("status","")).lower()
+                if status in ("completed","complete","finished","done","closed"):continue
+                try:due=date.fromisoformat(str(value.get("due_date",""))[:10])
+                except ValueError:continue
+                if due>=date.today():continue
+            found.append({"kind":src.kind,"data":value,"source":src.file_name,
+                          "sheet":src.sheet_name,"row":record.row_number,
+                          "last_synced":str(src.last_synced_at or "")[:19]})
+            if len(found)>=20:break
+    summary=(f"Found {len(found)} matching records (showing up to 20)."
+             if found else "No matching records in connected SharePoint snapshots. Check the source mapping, synchronisation and search terms.")
+    return {"answer":summary,"results":found,"category":category or "all",
+            "note":"Answers use previously imported SharePoint Excel snapshots, not live SharePoint queries."}
 
 @router.get("")
 def index(request:Request,q:str="",kind:str=""):
