@@ -5,7 +5,7 @@ No credentials are stored unless KAKI_TOKEN_ENCRYPTION_KEY is configured.
 This is development-only until multi-user isolation and OAuth verification ship.
 Outbound email sending is intentionally not implemented here.
 """
-import base64,json,os,secrets,re
+import base64,json,os,secrets,re,hashlib
 from datetime import datetime,timezone,timedelta
 from urllib.parse import urlencode
 from fastapi import APIRouter,Request,Form,HTTPException
@@ -85,9 +85,11 @@ def begin(request:Request,provider:str,csrf_token:str=Form(...)):
     cid,secret,redirect_uri=client_config(provider)
     with Session() as db:c=company_for_request(db,request);company_id=c.id
     nonce=secrets.token_urlsafe(24)
-    request.session["oauth_pending"]={"provider":provider,"company_id":company_id,"nonce":nonce}
+    verifier=secrets.token_urlsafe(64)
+    challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).decode().rstrip("=")
+    request.session["oauth_pending"]={"provider":provider,"company_id":company_id,"nonce":nonce,"verifier":verifier}
     if provider=="microsoft":
-        url=oauth_base(provider)+"/authorize?"+urlencode({"client_id":cid,"redirect_uri":redirect_uri,"response_type":"code","response_mode":"query","scope":SCOPES[provider],"state":nonce})
+        url=oauth_base(provider)+"/authorize?"+urlencode({"client_id":cid,"redirect_uri":redirect_uri,"response_type":"code","response_mode":"query","scope":SCOPES[provider],"state":nonce,"code_challenge":challenge,"code_challenge_method":"S256"})
     else:
         url="https://accounts.google.com/o/oauth2/v2/auth?"+urlencode({"client_id":cid,"redirect_uri":redirect_uri,"response_type":"code","scope":SCOPES[provider],"access_type":"offline","prompt":"consent","state":nonce})
     return RedirectResponse(url,status_code=303)
@@ -103,7 +105,11 @@ async def callback(request:Request,provider:str,code:str="",state:str="",error:s
         if c.id!=pending["company_id"]:raise HTTPException(403,"Company changed during sign-in")
     endpoint=(oauth_base(provider)+"/token") if provider=="microsoft" else "https://oauth2.googleapis.com/token"
     form={"client_id":cid,"client_secret":secret,"redirect_uri":redirect_uri,"grant_type":"authorization_code","code":code}
-    if provider=="microsoft":form["scope"]=SCOPES[provider]
+    if provider=="microsoft":
+        form["scope"]=SCOPES[provider]
+        verifier=pending.get("verifier","")
+        if len(verifier)<43:raise HTTPException(400,"Missing PKCE verifier")
+        form["code_verifier"]=verifier
     async with httpx.AsyncClient(timeout=25) as http:
         r=await http.post(endpoint,data=form);r.raise_for_status();token=r.json()
         if provider=="microsoft":
