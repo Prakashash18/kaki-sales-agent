@@ -24,6 +24,7 @@ def test_no_company_switching_or_second_company(monkeypatch):
         account=Account(email="single-"+suffix+"@example.test",password_hash=password_hash("long-secure-pass-1234"))
         db.add_all([company,account]);db.flush()
         db.add(Membership(account_id=account.id,company_id=company.id,role="owner"))
+        company_id=company.id
         db.commit()
     client=TestClient(app)
     res=client.post("/login",data={"email":"single-"+suffix+"@example.test","password":"long-secure-pass-1234"},follow_redirects=False)
@@ -43,7 +44,7 @@ def test_no_company_switching_or_second_company(monkeypatch):
     csrf=payload["csrf"]
     forbidden=client.post("/companies/new",data={"csrf_token":csrf,"name":"Forbidden Company"},follow_redirects=False)
     assert forbidden.status_code==403
-    forbidden=client.post("/companies/switch",data={"csrf_token":csrf,"company_id":company.id},follow_redirects=False)
+    forbidden=client.post("/companies/switch",data={"csrf_token":csrf,"company_id":company_id},follow_redirects=False)
     assert forbidden.status_code==403
 
 def test_oauth_accepts_persistent_sqlite_only_for_single_company(monkeypatch):
