@@ -59,8 +59,12 @@ def client_config(provider):
         raise HTTPException(503,"OAuth is disabled in this staging environment")
     if not cid or not secret or not public or not public.startswith("https://"):raise HTTPException(503,f"{provider} OAuth not configured")
     crypto()
-    if not os.getenv("DATABASE_URL","").startswith(("postgresql://","postgresql+psycopg://","postgres://")):
-        raise HTTPException(503,"Persistent PostgreSQL is required before linking mailboxes")
+    database=os.getenv("DATABASE_URL","")
+    persistent_sqlite=(database.startswith("sqlite:////var/data/") and
+        os.getenv("KAKI_SINGLE_COMPANY","false").lower()=="true")
+    managed_postgres=database.startswith(("postgresql://","postgresql+psycopg://","postgres://"))
+    if not (persistent_sqlite or managed_postgres):
+        raise HTTPException(503,"Persistent database storage is required before linking mailboxes")
     return cid,secret,public+f"/integrations/callback/{provider}"
 def oauth_base(provider):
     if provider == "microsoft":

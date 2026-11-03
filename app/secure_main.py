@@ -1,7 +1,7 @@
 """Kaki staging application: authenticated, role-scoped and fail-closed.
 
-Legacy routes are intentionally NOT registered. Production requires PostgreSQL,
-a verified OAuth app, backups, and an external security review.
+Legacy routes are intentionally NOT registered. Production requires a persistent
+SQLite disk or PostgreSQL, verified OAuth consent, and tested backups.
 """
 import os
 from fastapi import FastAPI, Request, HTTPException
@@ -21,9 +21,15 @@ if env in ("production", "staging") and len(secret) < 40:
 if not secret:
     secret = "local-test-secret-do-not-use-in-production"
 
-if env == "production" and not os.getenv("DATABASE_URL", "").startswith(
-        ("postgres://", "postgresql://", "postgresql+psycopg://")):
-    raise RuntimeError("Production requires persistent PostgreSQL")
+if env == "production":
+    address=os.getenv("DATABASE_URL","")
+    if address.startswith("sqlite"):
+        if not address.startswith("sqlite:////var/data/"):
+            raise RuntimeError("Production SQLite must use persistent /var/data mount")
+        if os.getenv("KAKI_SINGLE_COMPANY","false").lower() != "true":
+            raise RuntimeError("Production SQLite is restricted to single-company Kaki")
+    elif not address.startswith(("postgres://","postgresql://","postgresql+psycopg://")):
+        raise RuntimeError("Production requires persistent storage")
 
 app = FastAPI(title="Kaki Secure Workflow Pilot", docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax",

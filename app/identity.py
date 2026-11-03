@@ -120,6 +120,15 @@ def company_for_request(db, request, role="viewer"):
     require_role(request, role)
     company_id = request.session["company_id"]
     company = db.get(CompanyProfile, company_id)
+    if os.getenv("KAKI_SINGLE_COMPANY", "false").lower() == "true":
+        configured = os.getenv("KAKI_COMPANY_ID", "").strip()
+        if configured and str(company_id) != configured:
+            raise HTTPException(403, "Company is outside this deployment")
+        # Reject databases containing more than one company in this deployment.
+        from sqlalchemy import func
+        count = db.scalar(select(func.count()).select_from(CompanyProfile))
+        if count != 1:
+            raise HTTPException(409, "Single-company deployment requires exactly one company")
     if not company:
         raise HTTPException(404, "Company unavailable")
     return company
@@ -202,6 +211,8 @@ def setup(request: Request, bootstrap_token: str = Form(...), email: str = Form(
         raise HTTPException(400, "Company name required")
     hashed = password_hash(password)
     with Session() as db:
+        if os.getenv("KAKI_SINGLE_COMPANY", "false").lower()=="true" and db.scalar(select(CompanyProfile.id).limit(1)) is not None:
+            raise HTTPException(409, "This deployment already has a company")
         if db.scalar(select(Account.id).limit(1)) is not None:
             raise HTTPException(409, "Initial setup is already complete")
         user = Account(email=addr, password_hash=hashed)
@@ -217,6 +228,8 @@ def setup(request: Request, bootstrap_token: str = Form(...), email: str = Form(
 
 @router.post("/companies/switch")
 def switch(request: Request, company_id: int = Form(...), csrf_token: str = Form(...)):
+    if os.getenv("KAKI_SINGLE_COMPANY", "false").lower()=="true":
+        raise HTTPException(403, "Company switching disabled")
     user = require_user(request)
     if not request.session.get("csrf") or not secrets.compare_digest(request.session["csrf"], csrf_token):
         raise HTTPException(403)
@@ -233,6 +246,8 @@ def switch(request: Request, company_id: int = Form(...), csrf_token: str = Form
 
 @router.post("/companies/new")
 def create_company(request: Request, name: str = Form(...), csrf_token: str = Form(...)):
+    if os.getenv("KAKI_SINGLE_COMPANY", "false").lower()=="true":
+        raise HTTPException(403, "Only one company may use this Kaki deployment")
     user = require_user(request)
     if not request.session.get("csrf") or not secrets.compare_digest(request.session["csrf"], csrf_token):
         raise HTTPException(403)
