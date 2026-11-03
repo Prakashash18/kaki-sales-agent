@@ -12,7 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Base, engine
 from . import operations, company_settings, workflow_core
-from . import identity, secure_settings, secure_workflow_api, secure_email_api
+from . import identity, secure_settings, secure_workflow_api, secure_email_api, data_hub, backups
 
 secret = os.getenv("SESSION_SECRET", "")
 env = os.getenv("APP_ENV", "testing")
@@ -43,6 +43,8 @@ app.include_router(identity.router)
 app.include_router(secure_settings.router)
 app.include_router(secure_workflow_api.router)
 app.include_router(secure_email_api.router)
+app.include_router(data_hub.router)
+app.include_router(backups.router)
 
 if os.getenv("KAKI_AUTO_CREATE_SCHEMA", "false").lower() == "true" and env != "production":
     Base.metadata.create_all(engine)
