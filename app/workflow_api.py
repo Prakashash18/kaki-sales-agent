@@ -206,3 +206,21 @@ def propose(request:Request,wid:int,vid:int,csrf_token:str=Form(...),instruction
         return JSONResponse({"valid":not errors,"errors":errors,"proposal":candidate,"message":"Proposal only. Review JSON and save a new revision manually."})
     except Exception:
         return JSONResponse({"error":"Could not create proposal; original workflow unchanged."},status_code=502)
+
+@router.post("/runs/advance-due")
+def advance_due(request:Request,csrf_token:str=Form(...)):
+    """Manually resume due waits for current company in the demo.
+    Production requires a dedicated worker and row locking."""
+    require(request,csrf_token)
+    with Session() as db:
+        c=company(db)
+        runs=db.scalars(select(WorkflowRun).where(
+            WorkflowRun.company_id==c.id,
+            WorkflowRun.status=="waiting",
+            WorkflowRun.due_at<=utcnow()
+        ).order_by(WorkflowRun.id).limit(20).with_for_update()).all()
+        for run in runs:
+            run.status="running";run.due_at=None
+            advance(db,run)
+        db.commit()
+    return redirect()
