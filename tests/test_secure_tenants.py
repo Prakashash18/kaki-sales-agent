@@ -149,3 +149,52 @@ def test_graph_disabled_without_approval(monkeypatch):
     monkeypatch.setenv("KAKI_ENABLE_OAUTH","false")
     r=client.post("/integrations/connect/microsoft",data={"csrf_token":csrf},follow_redirects=False)
     assert r.status_code==503
+
+
+def test_microsoft_oauth_callback_and_graph_diagnostic_mocked(monkeypatch):
+    """Simulate Entra token redemption, Graph /me, and inbox diagnostic."""
+    import app.secure_email_api as api
+    from cryptography.fernet import Fernet
+    from urllib.parse import urlsplit,parse_qs
+    email,company_id=create_user()
+    client,csrf=login(email)
+    monkeypatch.setenv("KAKI_ENABLE_OAUTH","true")
+    monkeypatch.setenv("MICROSOFT_OAUTH_CLIENT_ID","fake-client-id")
+    monkeypatch.setenv("MICROSOFT_OAUTH_CLIENT_SECRET","fake-client-secret")
+    monkeypatch.setenv("MICROSOFT_TENANT_ID","12345678-1234-1234-1234-123456789abc")
+    monkeypatch.setenv("KAKI_PUBLIC_URL","https://kaki-secure-staging.example")
+    monkeypatch.setenv("KAKI_TOKEN_ENCRYPTION_KEY",Fernet.generate_key().decode())
+    monkeypatch.setenv("DATABASE_URL","postgresql+psycopg://fake:fake@localhost/example")
+    seen=[]
+    def transport_handler(request):
+        seen.append((request.method,str(request.url)))
+        if request.method=="POST" and "/token" in str(request.url):
+            return httpx.Response(200,json={"access_token":"dummy-access",
+                "refresh_token":"dummy-refresh","expires_in":3600,"token_type":"Bearer"})
+        if request.method=="GET" and str(request.url)=="https://graph.microsoft.com/v1.0/me":
+            return httpx.Response(200,json={"userPrincipalName":"tester@example.test","mail":"tester@example.test"})
+        if request.method=="GET" and "mailFolders/inbox/messages" in str(request.url):
+            return httpx.Response(200,json={"value":[{"id":"M1","subject":"Test request"}]})
+        raise AssertionError(f"Unexpected network request: {request}")
+    original=httpx.AsyncClient
+    monkeypatch.setattr(api.httpx,"AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(transport_handler),**kwargs))
+    start=client.post("/integrations/connect/microsoft",data={"csrf_token":csrf},follow_redirects=False)
+    assert start.status_code==303
+    state=parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+    callback=client.get("/integrations/callback/microsoft",
+        params={"code":"simulated-code","state":state},follow_redirects=False)
+    assert callback.status_code==303,callback.text
+    with Session() as db:
+        conn=db.scalar(select(MailConnection).where(
+            MailConnection.company_id==company_id,MailConnection.address=="tester@example.test"))
+        assert conn is not None
+        assert conn.access_ciphertext!="dummy-access"
+        cid=conn.id
+    diag=client.post(f"/integrations/{cid}/test",data={"csrf_token":csrf})
+    assert diag.status_code==200,diag.text
+    payload=diag.json()
+    assert payload["status"]=="ok"
+    assert payload["mailbox_readable"] is True
+    assert payload["sending_enabled"] is False
+    assert any("/token" in url for _,url in seen)
