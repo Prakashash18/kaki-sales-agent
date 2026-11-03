@@ -11,6 +11,11 @@ from .graph import get_messages,send_reply,configured
 app=FastAPI(title='Kaki Sales Agent MVP',docs_url=None)
 app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET','development-secret-only'),same_site='lax',https_only=os.getenv('APP_ENV')=='production')
 t=Jinja2Templates(directory='app/templates')
+app.state.templates=t
+from .operations import router as operations_router
+from .documents import router as documents_router
+app.include_router(operations_router)
+app.include_router(documents_router)
 def go(path='/'):return RedirectResponse(path,status_code=303)
 def permitted(request,token):return bool(request.session.get('user')) and bool(token) and secrets.compare_digest(token,request.session.get('csrf',''))
 def context(request,**items):return {'request':request,'user':request.session.get('user'),'csrf':request.session.get('csrf'),**items}
