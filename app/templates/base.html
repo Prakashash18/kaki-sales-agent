@@ -1,1 +1,223 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kaki Sales Agent</title><style>:root{font-family:Inter,system-ui,sans-serif;color:#e6f2f1;background:#0b1720}*{box-sizing:border-box}body{margin:0}header{display:flex;justify-content:space-between;align-items:center;padding:17px 6%;border-bottom:1px solid #263d46;background:#101f29}a{color:#8ce5cb;text-decoration:none}.logo{font-size:22px;font-weight:800}.logo span{color:#62e4bb}main{max-width:1100px;margin:32px auto;padding:0 22px}h1{font-size:30px;margin-bottom:8px}h2{font-size:19px}p{color:#a2b7bd;line-height:1.5}.card{border:1px solid #29444b;background:#142832;border-radius:16px;padding:24px;margin:18px 0}.statbar{display:flex;gap:15px;flex-wrap:wrap}.stat{flex:1;min-width:140px;background:#142832;border:1px solid #29444b;border-radius:14px;padding:19px}.stat strong{font-size:27px;display:block}.stat small{color:#a2b7bd}button{border:0;background:#5ed7ac;color:#052820;font-size:14px;font-weight:700;padding:11px 16px;border-radius:9px;cursor:pointer}button.secondary{background:#29434c;color:#e6f2f1}button.danger{background:#66383e;color:#ffe3e4}input,textarea,select{display:block;width:100%;padding:12px;background:#091923;border:1px solid #39535c;border-radius:8px;color:#ecfbf7;font:inherit}textarea{min-height:210px;line-height:1.55}label{font-size:13px;color:#b1c7ca}.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.row{display:flex;justify-content:space-between;align-items:center;gap:15px}.muted{color:#93aeb4;font-size:13px}.badge{padding:5px 9px;border:1px solid #3e625e;border-radius:999px;font-size:12px;color:#a3eed6}.email{padding:16px 0;border-bottom:1px solid #2a444c}.email h3{margin:7px 0;font-size:16px}.email p{margin:5px 0;font-size:13px}.pill{background:#24423c;color:#9cf7d1;padding:3px 7px;border-radius:5px;font-size:11px;text-transform:uppercase}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#091923;border-radius:10px;padding:15px}form.inline{display:inline-block}form.inline button{margin:2px}@media(max-width:600px){.row{align-items:flex-start;flex-direction:column}}select{padding:12px;background:#091923;color:#ecfbf7;border:1px solid #39535c;border-radius:8px;max-width:100%}button:disabled{opacity:.4;cursor:not-allowed}td,th{padding:8px;border-bottom:1px solid #29444b}</style></head><body><header><a href="/" class="logo">K<span>aki</span> <small class="muted">Sales Copilot</small></a>{% if user %}<a href="/flows" style="margin-left:auto;margin-right:18px">Workflows</a><a href="/ops" style="margin-right:18px">Sales operations</a><a href="/settings" style="margin-right:18px">Company settings</a><a href="/integrations" style="margin-right:18px">Email</a><a href="/data-hub" style="margin-right:18px">Data Hub</a><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{csrf}}"><button class="secondary">Sign out</button></form>{% endif %}</header><main>{% block content %}{% endblock %}</main></body></html>
+{% macro icon(name) -%}
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{% if name=='sales' %}<path d="M8 4H5a1 1 0 0 0-1 1v15h16V5a1 1 0 0 0-1-1h-3M9 3h6v4H9zM8 12h8M8 16h5"/>{% elif name=='flows' %}<rect x="8" y="2" width="8" height="6" rx="2"/><rect x="2" y="16" width="7" height="6" rx="2"/><rect x="15" y="16" width="7" height="6" rx="2"/><path d="M12 8v4H5v4m7-4h7v4"/>{% elif name=='data' %}<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"/>{% elif name=='mail' %}<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/>{% elif name=='settings' %}<path d="m9 3-1 3-3 1-2 4 2 2v4l4 3 3-1 3 1 4-3v-4l2-2-2-4-3-1-1-3z"/><circle cx="12" cy="12" r="3"/>{% elif name=='arrow' %}<path d="M5 12h14m-5-5 5 5-5 5"/>{% elif name=='logout' %}<path d="M9 4H4v16h5m5-12 4 4-4 4m-6-4h10"/>{% else %}<path d="M4 6h16M4 12h16M4 18h16"/>{% endif %}</svg>
+{%- endmacro %}
+{% set path=request.url.path %}
+{% set area='Sales operations' if path.startswith('/ops') else 'Data Hub' if path.startswith('/data-hub') else 'Connections' if path.startswith('/integrations') else 'Company settings' if path.startswith('/settings') or path.startswith('/companies') else 'Workflow Studio' %}
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#146c59"><title>{{area if user else 'Welcome'}} · Kaki</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#202c29;background:#f6f8f7;font-size:14px;line-height:1.5;--green:#176b56;--ink:#202c29;--muted:#6b7772;--line:#e2e8e5;--soft:#edf5f1}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--green);text-decoration:none}
+a:hover{text-decoration:underline}
+button,input,textarea,select{font:inherit}
+button,a,input,textarea,select,summary{ -webkit-tap-highlight-color:transparent}
+button{display:inline-flex;justify-content:center;align-items:center;gap:8px;background:var(--green);color:#fff;border:1px solid transparent;border-radius:8px;padding:10px 17px;font-weight:600;font-size:13px;cursor:pointer;line-height:1.5;transition:background .15s,box-shadow .15s;white-space:normal}
+button:hover{background:#105441}
+button.secondary,.button-secondary{background:#fff;color:#354b42;border:1px solid #d9e2dd}
+button.secondary:hover{background:#f0f5f2}
+button.danger{background:#fff1ee;color:#a53b2c;border-color:#f6d8d0}
+button:disabled{opacity:.45;cursor:not-allowed}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid #5aaf94;outline-offset:4px}
+.sidebar{position:fixed;inset:0 auto 0 0;width:236px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;padding:32px 18px 18px;z-index:30}
+.brand{display:flex;align-items:center;gap:11px;color:var(--ink);font-size:28px;font-weight:750;letter-spacing:-1.1px;padding:0 14px}
+.brand:hover{text-decoration:none}
+.brandmark{display:grid;place-items:center;background:var(--green);color:white;width:35px;height:35px;border-radius:11px;font-size:23px;letter-spacing:-3px;padding-right:3px}
+.brand-sub{font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--muted);margin:5px 0 35px 60px}
+.workspace{margin:0 6px 25px;border:1px solid var(--line);border-radius:9px;display:flex;gap:10px;padding:11px;align-items:center;font-size:12px}
+.workspace strong{display:block;font-size:12px}
+.workspace small{color:var(--muted)}
+.workspace-symbol{width:30px;height:30px;background:#eef2ed;border-radius:7px;display:grid;place-items:center;color:var(--green);font-weight:700}
+.nav-caption,.eyebrow{text-transform:uppercase;letter-spacing:1.5px;font-weight:650;font-size:10px;color:#89968f}
+.nav-caption{padding:0 14px;margin-bottom:9px}
+.sidebar nav{display:grid;gap:5px}
+.nav-link{display:flex;align-items:center;gap:13px;padding:12px 14px;border-radius:8px;color:#6a7871;font-weight:550;font-size:13px}
+.nav-link:hover{background:#f6f8f7;text-decoration:none}
+.nav-link.active{background:#eaf4ef;color:#14634e}
+.nav-link.active:after{content:"";width:6px;height:6px;border-radius:50%;background:var(--green);margin-left:auto}
+.sidebar-bottom{margin-top:auto;padding-top:28px}
+.sidebar-note{padding:16px;border-radius:10px;background:#f7f9f7;font-size:12px;color:var(--muted);margin-bottom:18px}
+.sidebar-note strong{color:#334b3f;display:block;margin-bottom:5px}
+.account{border-top:1px solid var(--line);padding:17px 5px 0;display:flex;gap:9px;align-items:center;min-width:0}
+.avatar{display:grid;place-items:center;flex-shrink:0;background:#e9eee5;color:#536247;border-radius:50%;width:32px;height:32px;font-weight:600;font-size:12px}
+.account-info{min-width:0;flex:1}
+.account-info strong{display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis}
+.account-info small{color:var(--muted);font-size:10px}
+.account button{padding:7px;border:0;background:transparent;color:#7b8781}
+.app{margin-left:236px}
+.topbar{height:78px;background:#fff;border-bottom:1px solid var(--line);padding:0 42px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12px}
+.breadcrumb{display:flex;gap:13px;align-items:center}
+.breadcrumb strong{font-weight:550;color:#394c42}
+.topbar-status{display:flex;align-items:center;gap:8px}
+.status-dot{width:6px;height:6px;background:#459b76;border-radius:50%;display:inline-block}
+.menu-toggle{display:none}.menu-toggle:hover{background:#eaf4ef}
+.main{max-width:1530px;margin:auto;padding:38px 42px 60px;min-width:0}
+h1{font-size:30px;line-height:1.25;letter-spacing:-1px;font-weight:650;margin:0 0 9px}
+h2{font-size:16px;letter-spacing:-.25px;font-weight:650;margin:0 0 9px}
+h3{font-size:13px;font-weight:650;margin:22px 0 10px}
+p{color:var(--muted);line-height:1.6;margin:8px 0 18px;max-width:80ch}
+.page-heading{display:flex;justify-content:space-between;gap:22px;align-items:center;margin-bottom:30px}
+.page-heading p{margin:0;font-size:13px}
+.eyebrow{color:var(--green);margin-bottom:10px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:25px;margin:22px 0;min-width:0}
+.card>p:last-child{margin-bottom:0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:15px}
+.row p{margin-top:4px}
+.actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.muted{color:var(--muted);font-size:12px}
+.badge,.pill{display:inline-flex;align-items:center;gap:5px;border:1px solid #dfe7e2;background:#f5f7f5;border-radius:6px;padding:4px 8px;font-size:11px;color:#58665c;line-height:1.3;white-space:nowrap}
+.badge[data-status=approved],.badge[data-status=completed],.badge[data-status=published],.badge[data-status=Active]{background:#edf7f0;color:#216c46;border-color:#d6ebdd}
+.badge[data-status=draft],.badge[data-status=awaiting_approval],.badge[data-status=pending_review]{background:#fff7e6;color:#946812;border-color:#f2e4c4}
+.badge[data-status=rejected],.badge[data-status=cancelled]{background:#fff1ee;color:#a34434;border-color:#f4d9d3}
+input,textarea,select{display:block;width:100%;max-width:100%;border:1px solid #d8e2dc;border-radius:7px;background:#fff;color:var(--ink);padding:10px 12px;min-height:42px;font-size:13px;transition:border-color .15s,box-shadow .15s}
+input:focus,textarea:focus,select:focus{outline:0;border-color:#448c71;box-shadow:0 0 0 3px #e6f1eb}
+input::placeholder,textarea::placeholder{color:#919b95}
+textarea{min-height:145px;line-height:1.6;resize:vertical}
+label{display:block;font-size:12px;color:#526258;font-weight:550;margin-bottom:7px}
+form>br{display:block;content:"";margin:0 0 16px}
+input[type=hidden]{display:none}
+input[type=file]{background:#fafcfb;padding:12px}
+form.inline{display:inline-block}
+.email{padding:18px 0;border-bottom:1px solid var(--line)}
+.email:last-child{border-bottom:0}
+.email h3{margin:5px 0}
+.email p{margin:6px 0;font-size:12px}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f7f5;color:#3b5548;border:1px solid var(--line);border-radius:8px;padding:18px;font-size:12px;line-height:1.7}
+table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}
+td,th{padding:19px 22px;border-bottom:1px solid #edf0ed}
+th{font-size:10px;letter-spacing:.7px;text-transform:uppercase;font-weight:600;color:#7b8880;background:#fbfcfb}
+td{color:#56655c}
+td strong{color:#2f4438;font-weight:550}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#fcfdfc}
+.table-wrap{overflow-x:auto}
+.table-wrap table{min-width:600px}
+.table-meta{display:block;font-size:11px;color:#859088;margin-top:4px}
+.statbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:17px;margin:25px 0 31px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:20px 22px;position:relative}
+.stat small{display:block;color:var(--muted);font-size:12px}
+.stat strong{display:block;font-size:28px;line-height:1.2;letter-spacing:-1px;font-weight:600;color:#263c30;margin:12px 0 4px}
+.stat-label{display:flex;justify-content:space-between;align-items:center;color:#8a9a90}
+.stat-caption{font-size:10px;color:#89948c}
+.stat-accent{height:3px;position:absolute;bottom:-1px;left:22px;right:22px;background:#d7e9dc;border-radius:2px}
+.tabs{display:flex;gap:29px;border-bottom:1px solid var(--line);margin-bottom:25px;overflow-x:auto}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:#7a857e;padding:12px 0 15px;white-space:nowrap;font-size:12px}
+.tabs button[aria-selected=true]{color:var(--green);border-bottom-color:var(--green)}
+.tabs .count{background:#edf1ed;border-radius:4px;padding:1px 5px;font-size:10px}
+.section-toolbar{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:18px}
+.section-toolbar p{font-size:12px;margin:3px 0 0}
+.table-card{border:1px solid var(--line);border-radius:11px;background:white;overflow:hidden}
+.table-footer{border-top:1px solid var(--line);padding:14px 22px;font-size:11px;color:#8a958d}
+.empty{padding:45px 24px;text-align:center;color:var(--muted)}
+.empty strong{display:block;color:#3a5142;font-size:15px;margin-bottom:7px}
+.empty p{margin:0 auto;font-size:12px}
+.notice{display:flex;gap:12px;align-items:flex-start;padding:17px 20px;background:#eef4ef;border:1px solid #e0e9df;border-radius:9px;color:#63745e;font-size:12px;margin-top:25px}
+.notice strong{color:#3c5946}
+.notice p{margin:0;font-size:12px}
+.split{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr);gap:22px;align-items:start}
+.split>.card{margin-top:0}
+.workflow-item{padding:24px 0;border-bottom:1px solid var(--line)}
+.workflow-item:last-child{border:0;padding-bottom:0}
+.workflow-item:first-of-type{padding-top:10px}
+.workflow-item h3{margin:0 0 4px;font-size:15px}
+.revision-links{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.workflow-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}
+details>summary{cursor:pointer;color:var(--green);font-weight:550;font-size:12px}
+details[open]>summary{margin-bottom:16px}
+.run-row{display:flex;align-items:center;gap:13px;padding:17px 0;border-bottom:1px solid var(--line)}
+.run-row:last-child{border:0}
+.run-symbol{width:31px;height:31px;background:#edf5ee;color:#3f805a;display:grid;place-items:center;border-radius:8px}
+.run-copy{flex:1}
+.run-copy strong{display:block;font-size:12px;font-weight:550}
+.run-copy small{color:#88948b;font-size:10px}
+.section-count{background:#eef2ee;color:#7c8b7f;border-radius:5px;font-size:10px;padding:3px 7px;margin-left:8px}
+.dialog{border:1px solid var(--line);border-radius:15px;width:min(530px,calc(100% - 32px));padding:28px;max-height:90dvh;overflow-y:auto;box-shadow:0 24px 80px #152a2630;color:var(--ink)}
+.dialog::backdrop{background:#162c2655;backdrop-filter:blur(3px)}
+.dialog .row{margin-bottom:8px}
+.dialog h2{font-size:21px;margin:0}
+.icon-button{background:transparent!important;color:#7b8980!important;padding:4px 9px!important;font-size:21px}
+.form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.form-field{margin-top:18px}
+.form-field.full{grid-column:1/-1}
+[hidden]{display:none!important}
+.auth{min-height:100dvh;background:#f2f6f1;display:grid;place-items:center;padding:28px}
+.auth .brand{justify-content:center;margin-bottom:22px}
+.auth .main{padding:0;width:min(100%,440px);margin:auto}
+.auth .card{margin:0!important;max-width:none!important;width:100%;padding:35px;border-color:#dce6dc;box-shadow:0 12px 50px #213a2110}
+.auth h1{font-size:26px}
+.auth form>button{width:100%;margin-top:7px}
+.skip-link{position:fixed;top:-80px;left:250px;background:#fff;padding:15px;z-index:100}
+.skip-link:focus{top:8px}
+.mobile-backdrop{display:none}
+@media(min-width:1400px){.main{padding-top:44px}
+}
+@media(max-width:1050px){.sidebar{width:210px}
+.app{margin-left:210px}
+.topbar{padding:0 27px}
+.main{padding:30px 27px}
+.split{grid-template-columns:1fr}
+.stat{padding:18px 16px}
+.statbar{gap:12px}
+.stat-accent{left:16px;right:16px}
+}
+@media(max-width:760px){.sidebar{transform:translateX(-100%);width:236px;transition:transform .2s}
+.app{margin-left:0}
+.topbar{height:65px;padding:0 20px}
+.topbar-status{display:none}
+.menu-toggle{display:inline-flex;background:transparent;color:var(--green);padding:7px;margin-left:-8px}
+.breadcrumb{gap:8px}
+.breadcrumb>span{display:none}
+.main{padding:27px 20px 40px}
+h1{font-size:26px}
+.page-heading{align-items:flex-start;gap:15px;margin-bottom:23px}
+.page-heading>button{padding:9px 12px;font-size:11px}
+.page-heading p{font-size:12px}
+.statbar{grid-template-columns:1fr 1fr;gap:12px;margin:22px 0}
+.stat{padding:16px}
+.stat strong{font-size:25px;margin:9px 0 3px}
+.stat small{font-size:11px}
+.tabs{gap:24px}
+.card{padding:20px;margin:18px 0}
+.row{flex-wrap:wrap}
+.section-toolbar{align-items:flex-start}
+.section-toolbar button{font-size:11px;padding:8px 12px}
+.section-toolbar h2{font-size:15px}
+.form-grid{grid-template-columns:1fr}
+.form-field.full{grid-column:auto}
+.dialog{padding:24px}
+.sidebar-open .sidebar{transform:translateX(0)}
+.sidebar-open .mobile-backdrop{display:block;position:fixed;inset:0;background:#152c2855;z-index:20}
+.auth{padding:18px}
+.auth .card{padding:27px}
+.skip-link{left:20px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}
+}
+
+</style></head>
+<body class="{% if not user %}auth{% endif %}">
+{% if user %}<a class="skip-link" href="#content">Skip to content</a><div class="mobile-backdrop" data-close-menu></div>
+<aside class="sidebar" id="navigation"><a href="/" class="brand"><span class="brandmark">k</span>kaki<span style="color:#8dba72">.</span></a><div class="brand-sub">Your sales, in sync.</div>
+<div class="workspace"><span class="workspace-symbol">K</span><div><strong>Company workspace</strong><small>Sales & operations</small></div></div><div class="nav-caption">Workspace</div>
+<nav aria-label="Main navigation">{% for href,label,key in [('/ops','Sales operations','sales'),('/flows','Workflow Studio','flows'),('/data-hub','Data Hub','data'),('/integrations','Connections','mail'),('/settings','Company settings','settings')] %}<a href="{{href}}" class="nav-link {% if path.startswith(href) %}active{% endif %}" {% if path.startswith(href) %}aria-current="page"{% endif %}>{{icon(key)}}{{label}}</a>{% endfor %}</nav>
+<div class="sidebar-bottom"><div class="sidebar-note"><strong>A little less busywork.</strong>Bring your sales process together, one approved step at a time.</div><div class="account"><span class="avatar">{{user[0]|upper}}</span><div class="account-info"><strong>{{user}}</strong><small>Company account</small></div><form action="/logout" method="post"><input name="csrf_token" type="hidden" value="{{csrf}}"><button title="Sign out" aria-label="Sign out">{{icon('logout')}}</button></form></div></div></aside>
+<div class="app"><header class="topbar"><div class="breadcrumb"><button class="menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="navigation">{{icon('menu')}}</button><span>Workspace</span><span>/</span><strong>{{area}}</strong></div><div class="topbar-status"><span class="status-dot"></span> Human approval, built in</div></header>
+{% else %}<div class="auth-wrap"><a class="brand" href="/"><span class="brandmark">k</span>kaki<span style="color:#8dba72">.</span></a>{% endif %}
+<main class="main" id="content">{% block content %}{% endblock %}</main></div>
+<script>
+document.querySelectorAll('.badge').forEach(b=>{if(!b.dataset.status)b.dataset.status=b.textContent.trim()});
+const menu=document.querySelector('.menu-toggle');
+const sidebar=document.querySelector('.sidebar');
+function syncNavigation(){if(!sidebar)return;const hidden=matchMedia('(max-width:760px)').matches&&!document.body.classList.contains('sidebar-open');sidebar.inert=hidden;if(hidden)sidebar.setAttribute('aria-hidden','true');else sidebar.removeAttribute('aria-hidden')}
+syncNavigation();addEventListener('resize',syncNavigation);
+function closeMenu(){document.body.classList.remove('sidebar-open');if(menu){menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','Open navigation')}syncNavigation()}
+if(menu)menu.addEventListener('click',()=>{const open=document.body.classList.toggle('sidebar-open');menu.setAttribute('aria-expanded',String(open));menu.setAttribute('aria-label',open?'Close navigation':'Open navigation');syncNavigation()});
+document.querySelector('[data-close-menu]')?.addEventListener('click',closeMenu);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu()});
+document.querySelectorAll('[data-dialog]').forEach(b=>b.addEventListener('click',()=>document.getElementById(b.dataset.dialog).showModal()));
+document.querySelectorAll('[data-close-dialog]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
+// Associate inherited form labels with their controls as well as newly authored fields.
+document.querySelectorAll('label:not([for])').forEach((label,i)=>{let control=label.nextElementSibling;if(control?.matches('input,textarea,select')){control.id ||= 'field-'+i;label.htmlFor=control.id}});
+</script></body></html>
