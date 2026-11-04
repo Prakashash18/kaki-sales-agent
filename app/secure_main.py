@@ -12,7 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Base, engine
 from . import operations, company_settings, workflow_core
-from . import identity, secure_settings, secure_workflow_api, secure_email_api, data_hub, backups, readiness, secure_operations
+from . import identity, secure_settings, secure_workflow_api, secure_email_api, data_hub, backups, readiness, secure_operations, chat
 
 secret = os.getenv("SESSION_SECRET", "")
 env = os.getenv("APP_ENV", "testing")
@@ -47,6 +47,7 @@ app.include_router(data_hub.router)
 app.include_router(backups.router)
 app.include_router(readiness.router)
 app.include_router(secure_operations.router)
+app.include_router(chat.router)
 
 if os.getenv("KAKI_AUTO_CREATE_SCHEMA", "false").lower() == "true" and env != "production":
     Base.metadata.create_all(engine)
@@ -55,12 +56,17 @@ if os.getenv("KAKI_AUTO_CREATE_SCHEMA", "false").lower() == "true" and env != "p
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    # Only same-origin task frames inside the chat workspace may embed pages.
+    embedded = (request.headers.get("sec-fetch-dest") == "iframe"
+                and request.headers.get("sec-fetch-site") == "same-origin")
+    response.headers["X-Frame-Options"] = "SAMEORIGIN" if embedded else "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "img-src 'self' data:; base-uri 'none'; frame-src 'self'; "
+        + ("frame-ancestors 'self'; " if embedded else "frame-ancestors 'none'; ")
+        + "form-action 'self'"
     )
     if env in ("production", "staging"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -77,7 +83,7 @@ def homepage(request: Request):
         require_user(request)
     except HTTPException:
         return RedirectResponse("/login", status_code=303)
-    return RedirectResponse("/flows", status_code=303)
+    return RedirectResponse("/chat", status_code=303)
 
 @app.on_event("startup")
 async def begin_due_workflow_worker():

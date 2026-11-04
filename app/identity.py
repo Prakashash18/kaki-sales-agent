@@ -152,7 +152,7 @@ def render(request, name, **data):
                          "csrf": request.session.get("csrf"), **data}
     )
 
-def redirect(url="/flows"):
+def redirect(url="/chat"):
     return RedirectResponse(url, status_code=303)
 
 @router.get("/login")
