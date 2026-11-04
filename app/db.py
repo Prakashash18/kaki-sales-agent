@@ -5,7 +5,21 @@ from sqlalchemy.orm import DeclarativeBase,Mapped,mapped_column,sessionmaker
 url=os.getenv('DATABASE_URL','sqlite:///./kaki.db')
 if url.startswith('postgres://'):url='postgresql+psycopg://'+url[len('postgres://'):]
 if url.startswith('postgresql://'):url='postgresql+psycopg://'+url[len('postgresql://'):]
-engine=create_engine(url,pool_pre_ping=True,connect_args={'check_same_thread':False} if url.startswith('sqlite') else {})
+engine=create_engine(
+    url,pool_pre_ping=True,
+    connect_args={'check_same_thread':False,'timeout':30} if url.startswith('sqlite') else {}
+)
+if url.startswith("sqlite"):
+    from sqlalchemy import event
+    @event.listens_for(engine,"connect")
+    def sqlite_configure(connection, _):
+        cursor=connection.cursor()
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        if url != "sqlite:///:memory:":
+            cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
 Session=sessionmaker(bind=engine)
 class Base(DeclarativeBase):pass
 class Email(Base):

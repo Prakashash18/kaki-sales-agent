@@ -1,7 +1,7 @@
 """Kaki staging application: authenticated, role-scoped and fail-closed.
 
-Legacy routes are intentionally NOT registered. Production requires PostgreSQL,
-a verified OAuth app, backups, and an external security review.
+Legacy routes are intentionally NOT registered. Production requires a persistent
+SQLite disk or PostgreSQL, verified OAuth consent, and tested backups.
 """
 import os
 from fastapi import FastAPI, Request, HTTPException
@@ -12,7 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Base, engine
 from . import operations, company_settings, workflow_core
-from . import identity, secure_settings, secure_workflow_api, secure_email_api
+from . import identity, secure_settings, secure_workflow_api, secure_email_api, data_hub, backups, readiness, secure_operations, chat
 
 secret = os.getenv("SESSION_SECRET", "")
 env = os.getenv("APP_ENV", "testing")
@@ -21,9 +21,15 @@ if env in ("production", "staging") and len(secret) < 40:
 if not secret:
     secret = "local-test-secret-do-not-use-in-production"
 
-if env == "production" and not os.getenv("DATABASE_URL", "").startswith(
-        ("postgres://", "postgresql://", "postgresql+psycopg://")):
-    raise RuntimeError("Production requires persistent PostgreSQL")
+if env == "production":
+    address=os.getenv("DATABASE_URL","")
+    if address.startswith("sqlite"):
+        if not address.startswith("sqlite:////var/data/"):
+            raise RuntimeError("Production SQLite must use persistent /var/data mount")
+        if os.getenv("KAKI_SINGLE_COMPANY","false").lower() != "true":
+            raise RuntimeError("Production SQLite is restricted to single-company Kaki")
+    elif not address.startswith(("postgres://","postgresql://","postgresql+psycopg://")):
+        raise RuntimeError("Production requires persistent storage")
 
 app = FastAPI(title="Kaki Secure Workflow Pilot", docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax",
@@ -37,6 +43,11 @@ app.include_router(identity.router)
 app.include_router(secure_settings.router)
 app.include_router(secure_workflow_api.router)
 app.include_router(secure_email_api.router)
+app.include_router(data_hub.router)
+app.include_router(backups.router)
+app.include_router(readiness.router)
+app.include_router(secure_operations.router)
+app.include_router(chat.router)
 
 if os.getenv("KAKI_AUTO_CREATE_SCHEMA", "false").lower() == "true" and env != "production":
     Base.metadata.create_all(engine)
@@ -45,12 +56,17 @@ if os.getenv("KAKI_AUTO_CREATE_SCHEMA", "false").lower() == "true" and env != "p
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    # Only same-origin task frames inside the chat workspace may embed pages.
+    embedded = (request.headers.get("sec-fetch-dest") == "iframe"
+                and request.headers.get("sec-fetch-site") == "same-origin")
+    response.headers["X-Frame-Options"] = "SAMEORIGIN" if embedded else "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "img-src 'self' data:; base-uri 'none'; frame-src 'self'; "
+        + ("frame-ancestors 'self'; " if embedded else "frame-ancestors 'none'; ")
+        + "form-action 'self'"
     )
     if env in ("production", "staging"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -67,4 +83,38 @@ def homepage(request: Request):
         require_user(request)
     except HTTPException:
         return RedirectResponse("/login", status_code=303)
-    return RedirectResponse("/flows", status_code=303)
+    return RedirectResponse("/chat", status_code=303)
+
+@app.on_event("startup")
+async def begin_due_workflow_worker():
+    if os.getenv("KAKI_ENABLE_DUE_WORKER","false").lower()!="true":
+        return
+    import asyncio
+    import logging
+    from .db import Session
+    from .workflow_core import run_due
+    async def tick():
+        while True:
+            await asyncio.sleep(30)
+            try:
+                def process():
+                    with Session() as db:
+                        count=run_due(db,limit=20)
+                        db.commit()
+                        return count
+                await asyncio.to_thread(process)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.getLogger(__name__).exception("Kaki scheduled workflow check failed")
+    app.state.due_worker=asyncio.create_task(tick())
+
+@app.on_event("shutdown")
+async def stop_due_workflow_worker():
+    task=getattr(app.state,"due_worker",None)
+    if task:
+        task.cancel()
+        try:
+            await task
+        except __import__("asyncio").CancelledError:
+            pass

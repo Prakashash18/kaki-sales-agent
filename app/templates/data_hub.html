@@ -1,0 +1,56 @@
+{% extends 'base.html' %}{% block content %}
+<div class="page-heading"><div><div class="eyebrow">Business knowledge</div><h1>Data Hub</h1><p>Your products, prices, customers and jobs. Connected through SharePoint.</p></div><span class="badge">Read only</span></div>
+<p><a href="/integrations">Microsoft 365 connections</a> · <a href="/flows">Workflow Studio</a> · <a href="/settings">Staff & settings</a></p>
+<div class="card"><h2>Ask Kaki about your business</h2><p>Ask about stock, customers, prices, completed jobs or overdue jobs. Answers are grounded in imported Excel records.</p><form id="askKaki"><input name="question" placeholder="Which jobs are completed?" required minlength="3" maxlength="300"><br><button>Ask Kaki</button></form><pre id="askAnswer" style="display:none;white-space:pre-wrap"></pre></div>
+<div class="card">
+<h2>Browse business records</h2>
+<form method="get" action="/data-hub"><label>Search synced records</label><input name="q" value="{{q}}" placeholder="Job number, customer, SKU..."><label>Category</label><select name="kind"><option value="">All categories</option>{% for name in ['inventory','pricing','customers','jobs'] %}<option value="{{name}}" {% if kind==name %}selected{% endif %}>{{name|capitalize}}</option>{% endfor %}</select><br><br><button>Search</button></form>
+{% for r in records %}
+<div class="email"><div class="row"><strong>{{r.kind|capitalize}} · {{r.file}}</strong><span class="muted">{{r.sheet}} · Excel row {{r.row}}</span></div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">{% for key,value in r.data.items() %}<span class="badge">{{key}}: {{value}}</span>{% endfor %}</div></div>
+{% else %}<p>No matching records. Connect SharePoint and import an approved workbook below.</p>{% endfor %}
+</div>
+<div class="card"><h2>Connected sources</h2>
+{% for s in sources %}<div class="email"><div class="row"><strong>{{s.file}} — {{s.sheet}}</strong><span class="badge">{{s.status}}</span></div><p>{{s.kind}} · {{s.rows}} rows · Last sync: {{s.date or 'Never'}}</p><div class="actions">
+<form method="post" action="/data-hub/sources/{{s.id}}/sync" class="inline"><input type="hidden" name="csrf_token" value="{{csrf}}"><button class="secondary">Sync changes</button></form>
+<form method="post" action="/data-hub/sources/{{s.id}}/disable" class="inline"><input type="hidden" name="csrf_token" value="{{csrf}}"><button class="secondary">Disable source</button></form></div></div>
+{% else %}<p>No connected Excel files yet.</p>{% endfor %}
+</div>
+<div class="card"><h2>Add a SharePoint Excel workbook</h2>
+<p>Connect your Microsoft 365 account first. Kaki reads only workbooks you select. It never edits the original file.</p>
+{% if not connections %}<p>No Microsoft 365 connection exists yet. <a href="/integrations">Connect Outlook and SharePoint</a> to continue.</p>
+{% else %}
+<form id="siteSearch"><input name="csrf_token" type="hidden" value="{{csrf}}"><label>Microsoft connection</label><select name="connection_id" id="connection">{% for c in connections %}<option value="{{c.id}}">{{c.email}}</option>{% endfor %}</select>
+<label>Search SharePoint sites</label><input name="query" placeholder="Enter part of a site name" minlength="2" maxlength="80" required><br><button>Find SharePoint sites</button></form>
+<div id="steps" aria-live="polite"></div>
+{% endif %}
+</div>
+<div class="card"><h2>Data ownership</h2><p>SharePoint remains the source of truth. Imported records are searchable snapshots in Kaki SQLite. The app shows the original file and Excel row for traceability. Kaki does not edit SharePoint or automatically send email.</p></div>
+<script>
+const csrf={{csrf|tojson}};
+const steps=document.getElementById('steps');
+let context={};
+function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]))}
+async function post(endpoint,values){
+ const data=new FormData();data.set('csrf_token',csrf);for(const [k,v] of Object.entries(values))data.set(k,v);
+ const response=await fetch(endpoint,{method:'POST',body:data});
+ if(!response.ok){let out=await response.json().catch(()=>({detail:'Operation failed'}));throw Error(typeof out.detail==='string'?out.detail:JSON.stringify(out.detail))}
+ if(response.redirected){window.location.href=response.url;return null}
+ return response.json();
+}
+function btn(label,handler){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.onclick=handler;return b}
+function block(label){const element=document.createElement('div');element.className='email';const title=document.createElement('strong');title.textContent=label;element.appendChild(title);return element}
+function error(e){steps.textContent='Error: '+e.message}
+function chooseSites(sites){steps.replaceChildren();const box=block('Choose SharePoint site');steps.appendChild(box);
+ if(!sites.length){box.appendChild(document.createTextNode(' — No matching sites; check Sites.Read.All consent.'));return}
+ for(const site of sites){const row=block(site.name);row.appendChild(btn('Open libraries',async()=>{try{context.site=site.id;const x=await post('/data-hub/browse',{connection_id:context.connection_id,site_id:site.id});chooseDrives(x.drives)}catch(e){error(e)}}));steps.appendChild(row)}
+}
+function chooseDrives(drives){steps.replaceChildren(block('Choose document library'));for(const drive of drives){const row=block(drive.name);row.appendChild(btn('Browse files',async()=>{try{context.drive=drive.id;await folder('')}catch(e){error(e)}}));steps.appendChild(row)}}
+async function folder(id){const x=await post('/data-hub/browse',{connection_id:context.connection_id,site_id:context.site,drive_id:context.drive,folder_id:id});steps.replaceChildren(block('Choose Excel workbook'));if(x.more)steps.appendChild(block('More than 200 items: narrow this folder or organise workbooks into subfolders.'));
+for(const item of x.files){const row=block(item.name);if(item.folder)row.appendChild(btn('Open folder',()=>folder(item.id).catch(error)));else row.appendChild(btn('Preview workbook',()=>preview(item).catch(error)));steps.appendChild(row)}}
+async function preview(item){context.item=item.id;const cats=['inventory','pricing','customers','jobs'];
+steps.replaceChildren(block('Choose what this workbook contains'));for(const cat of cats){const row=block(cat);row.appendChild(btn('Preview '+cat,async()=>{try{context.kind=cat;const x=await post('/data-hub/preview',{connection_id:context.connection_id,drive_id:context.drive,item_id:item.id,kind:cat});showSheets(x)}catch(e){error(e)}}));steps.appendChild(row)}}
+function showSheets(result){steps.replaceChildren(block('Review column mapping before import'));for(const sheet of result.sheets){const row=block(sheet.name+' ('+sheet.count+' rows)');const label=document.createElement('p');label.textContent='Columns: '+sheet.headers.join(', ');row.appendChild(label);const textarea=document.createElement('textarea');textarea.style.minHeight='110px';textarea.value=JSON.stringify(sheet.suggested_mapping,null,2);row.appendChild(textarea);const samples=document.createElement('pre');samples.textContent=JSON.stringify(sheet.sample_rows.slice(0,2),null,2);row.appendChild(samples);row.appendChild(btn('Approve mapping and import',async()=>{if(!confirm('Import this sheet into Kaki as '+context.kind+'? The original Excel file will not change.'))return;try{await post('/data-hub/import',{connection_id:context.connection_id,drive_id:context.drive,item_id:context.item,sheet_name:sheet.name,kind:context.kind,mapping_json:textarea.value})}catch(e){error(e)}}));steps.appendChild(row)}}
+const askForm=document.getElementById('askKaki');if(askForm)askForm.onsubmit=async e=>{e.preventDefault();const panel=document.getElementById('askAnswer');panel.style.display='block';panel.textContent='Searching connected records...';try{const q=new FormData(askForm).get('question');const res=await fetch('/data-hub/ask?question='+encodeURIComponent(q));const json=await res.json();if(!res.ok)throw Error(json.detail||'Question failed');panel.textContent=json.answer+'\n\n'+json.results.map(x=>JSON.stringify(x.data)+'\nSource: '+x.source+' / '+x.sheet+' / row '+x.row+' (synced '+x.last_synced+')').join('\n\n')+'\n\n'+json.note}catch(err){panel.textContent='Unable to answer: '+err.message}};
+const siteForm=document.getElementById('siteSearch');if(siteForm)siteForm.onsubmit=async e=>{e.preventDefault();context.connection_id=document.getElementById('connection').value;steps.textContent='Searching SharePoint sites...';try{const x=await post('/data-hub/discover',{connection_id:context.connection_id,query:new FormData(siteForm).get('query')});chooseSites(x.sites)}catch(err){error(err)}};
+</script>
+{% endblock %}

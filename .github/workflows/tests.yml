@@ -51,3 +51,22 @@ jobs:
       - run: pip install -r requirements.txt beautifulsoup4
       - run: python -m alembic upgrade head
       - run: python -m pytest -q
+  sqlite-migration-tests:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///./kaki_migrations_test.db
+      KAKI_AUTO_CREATE_SCHEMA: "false"
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: test-password
+      SESSION_SECRET: test-only-session-key
+      DISABLE_SEND: "true"
+      KAKI_SINGLE_COMPANY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt beautifulsoup4
+      - run: python -m alembic upgrade head
+      - run: python -m pytest -q
+      - run: python -m alembic current
